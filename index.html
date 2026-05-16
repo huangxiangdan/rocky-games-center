@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>小游戏主页</title>
+    <style>
+      :root {
+        --bg: #f4ead9;
+        --bg-deep: #d9b98a;
+        --panel: rgba(255, 250, 242, 0.82);
+        --card: rgba(255, 255, 255, 0.58);
+        --ink: #352113;
+        --muted: #6d5643;
+        --line: rgba(53, 33, 19, 0.12);
+        --accent: #bf4d28;
+        --accent-deep: #7f2e16;
+        --shadow: rgba(71, 40, 12, 0.18);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        min-height: 100svh;
+        font-family: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(255, 255, 255, 0.55), transparent 28%),
+          radial-gradient(circle at 85% 15%, rgba(191, 77, 40, 0.18), transparent 22%),
+          linear-gradient(140deg, var(--bg), var(--bg-deep));
+        padding: 24px;
+      }
+
+      .shell {
+        width: min(1120px, 100%);
+        margin: 0 auto;
+        padding: 28px;
+        border-radius: 30px;
+        background: var(--panel);
+        border: 1px solid rgba(255, 255, 255, 0.5);
+        box-shadow: 0 24px 60px var(--shadow);
+        backdrop-filter: blur(12px);
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+        gap: 24px;
+        align-items: stretch;
+      }
+
+      .hero-copy {
+        padding: 8px 0;
+      }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        font-size: 13px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(38px, 7vw, 72px);
+        line-height: 0.95;
+      }
+
+      .hero-copy p {
+        margin: 16px 0 0;
+        max-width: 38rem;
+        line-height: 1.6;
+        color: var(--muted);
+      }
+
+      .hero-panel {
+        padding: 20px;
+        border-radius: 24px;
+        background:
+          linear-gradient(160deg, rgba(255, 255, 255, 0.7), rgba(244, 234, 217, 0.68)),
+          linear-gradient(135deg, rgba(191, 77, 40, 0.08), transparent);
+        border: 1px solid var(--line);
+      }
+
+      .hero-panel h2 {
+        margin: 0 0 10px;
+        font-size: 18px;
+      }
+
+      .hero-panel p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .grid {
+        margin-top: 30px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+      }
+
+      .card {
+        display: grid;
+        gap: 16px;
+        padding: 22px;
+        border-radius: 24px;
+        background: var(--card);
+        border: 1px solid var(--line);
+        box-shadow: 0 14px 28px rgba(71, 40, 12, 0.08);
+      }
+
+      .card-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 10px;
+        border-radius: 999px;
+        background: rgba(191, 77, 40, 0.12);
+        color: var(--accent-deep);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .emoji {
+        font-size: 30px;
+      }
+
+      .card h3 {
+        margin: 0;
+        font-size: 28px;
+      }
+
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .chip {
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(53, 33, 19, 0.06);
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 46px;
+        padding: 0 16px;
+        border-radius: 14px;
+        text-decoration: none;
+        font-weight: 700;
+        transition: transform 120ms ease-out, box-shadow 120ms ease-out;
+      }
+
+      .button:hover {
+        transform: translateY(-1px);
+      }
+
+      .button-primary {
+        color: #fff9f1;
+        background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+        box-shadow: 0 12px 20px rgba(127, 46, 22, 0.2);
+      }
+
+      .button-secondary {
+        color: var(--ink);
+        background: rgba(255, 255, 255, 0.66);
+        border: 1px solid var(--line);
+      }
+
+      .card-placeholder {
+        justify-content: center;
+        min-height: 280px;
+        background:
+          linear-gradient(140deg, rgba(255, 255, 255, 0.42), rgba(243, 233, 220, 0.76)),
+          repeating-linear-gradient(
+            -45deg,
+            rgba(53, 33, 19, 0.03),
+            rgba(53, 33, 19, 0.03) 10px,
+            transparent 10px,
+            transparent 20px
+          );
+      }
+
+      .card-placeholder .badge {
+        background: rgba(53, 33, 19, 0.08);
+        color: var(--muted);
+      }
+
+      .footer {
+        margin-top: 22px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      @media (max-width: 860px) {
+        body {
+          padding: 14px;
+        }
+
+        .shell {
+          padding: 18px;
+          border-radius: 22px;
+        }
+
+        .hero {
+          grid-template-columns: 1fr;
+          gap: 14px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .card h3 {
+          font-size: 24px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Games Workspace</p>
+          <h1>小游戏主页</h1>
+          <p>
+            这里集中展示当前工作区里的小游戏。后面每做一个新游戏，都可以继续往这个主页里加一张卡片，慢慢变成你自己的小游戏集合。
+          </p>
+        </div>
+
+        <aside class="hero-panel">
+          <h2>使用方式</h2>
+          <p>
+            本地预览时建议通过本地静态服务打开这个主页，这样点进每个游戏后，模块脚本和资源加载都会更稳定。
+          </p>
+        </aside>
+      </section>
+
+      <section class="grid" aria-label="游戏列表">
+        <article class="card">
+          <div class="card-top">
+            <span class="badge">新游戏</span>
+            <span class="emoji" aria-hidden="true">🔺</span>
+          </div>
+
+          <div>
+            <h3>红绿三角迷宫对战</h3>
+            <p>
+              双人同屏迷宫射击游戏。绿三角和红三角在大迷宫里彼此追击，边走位边开火。
+            </p>
+          </div>
+
+          <div class="meta">
+            <span class="chip">双人同屏</span>
+            <span class="chip">迷宫战斗</span>
+            <span class="chip">射击对战</span>
+          </div>
+
+          <div class="actions">
+            <a class="button button-primary" href="./triangle-maze-duel/index.html">进入游戏</a>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-top">
+            <span class="badge">已上线</span>
+            <span class="emoji" aria-hidden="true">🐭</span>
+          </div>
+
+          <div>
+            <h3>老鼠抓猫</h3>
+            <p>
+              多关卡追逐小游戏。老鼠要在夹子、大炮和 Boss 的围追堵截下继续抓猫推进。
+            </p>
+          </div>
+
+          <div class="meta">
+            <span class="chip">动作追逐</span>
+            <span class="chip">多关卡</span>
+            <span class="chip">Boss 战</span>
+          </div>
+
+          <div class="actions">
+            <a class="button button-primary" href="./mouse-catches-cat/index.html">进入游戏</a>
+            <a class="button button-secondary" href="./mouse-catches-cat/">查看目录</a>
+          </div>
+        </article>
+
+        <article class="card card-placeholder">
+          <div class="card-top">
+            <span class="badge">待创建</span>
+            <span class="emoji" aria-hidden="true">🎮</span>
+          </div>
+
+          <div>
+            <h3>下一个新游戏</h3>
+            <p>
+              根目录已经空出来了。你告诉我想做什么玩法，我就可以直接在这里继续搭第二个游戏。
+            </p>
+          </div>
+
+          <div class="meta">
+            <span class="chip">新项目入口</span>
+            <span class="chip">可继续扩展</span>
+          </div>
+        </article>
+      </section>
+
+      <p class="footer">当前已有游戏目录：`mouse-catches-cat/`</p>
+    </main>
+  </body>
+</html>

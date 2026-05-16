@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>老鼠抓猫</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='50' font-size='48'%3E🐭%3C/text%3E%3C/svg%3E"
+    />
+    <style>
+      :root {
+        --bg: #f5e7c8;
+        --bg-deep: #dfb16c;
+        --panel: rgba(255, 248, 233, 0.82);
+        --ink: #3b2416;
+        --accent: #d94f2b;
+        --accent-soft: #f08857;
+        --track: #7fbea3;
+        --track-deep: #297357;
+        --line: rgba(59, 36, 22, 0.14);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        min-height: 100svh;
+        overflow-x: hidden;
+        font-family: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(255, 255, 255, 0.55), transparent 32%),
+          radial-gradient(circle at 85% 20%, rgba(217, 79, 43, 0.18), transparent 24%),
+          linear-gradient(135deg, var(--bg), var(--bg-deep));
+        display: grid;
+        place-items: center;
+        padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+          max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+      }
+
+      .shell {
+        width: min(1040px, 100%);
+        max-width: 100%;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 300px;
+        gap: 20px;
+        align-items: start;
+      }
+
+      .board,
+      .panel {
+        backdrop-filter: blur(10px);
+        background: var(--panel);
+        border: 1px solid rgba(255, 255, 255, 0.45);
+        box-shadow: 0 20px 50px rgba(72, 41, 11, 0.18);
+      }
+
+      .board {
+        position: relative;
+        width: 100%;
+        max-width: 100%;
+        aspect-ratio: 3 / 2;
+        border-radius: 28px;
+        overflow: hidden;
+        touch-action: none;
+        background:
+          radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.45), transparent 20%),
+          linear-gradient(180deg, #8fcbb2, #5ea182 45%, #4d8a71);
+      }
+
+      .board::before {
+        content: "";
+        position: absolute;
+        inset: 16px;
+        border: 3px dashed rgba(255, 248, 233, 0.4);
+        border-radius: 22px;
+        pointer-events: none;
+      }
+
+      .lane {
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(transparent 49%, rgba(255, 255, 255, 0.08) 50%, transparent 51%),
+          linear-gradient(90deg, transparent 49%, rgba(255, 255, 255, 0.08) 50%, transparent 51%);
+        background-size: 120px 120px;
+        opacity: 0.45;
+      }
+
+      .actor {
+        position: absolute;
+        width: 56px;
+        height: 56px;
+        margin-left: -28px;
+        margin-top: -28px;
+        display: grid;
+        place-items: center;
+        font-size: 36px;
+        transform: translate3d(0, 0, 0) scale(1);
+        transition: transform 120ms ease-out;
+        user-select: none;
+      }
+
+      .mouse {
+        filter: drop-shadow(0 10px 10px rgba(53, 31, 19, 0.24));
+      }
+
+      .cat {
+        filter: drop-shadow(0 12px 12px rgba(53, 31, 19, 0.2));
+      }
+
+      .boss {
+        font-size: 42px;
+        filter: drop-shadow(0 14px 16px rgba(93, 16, 10, 0.26));
+      }
+
+      .trap {
+        font-size: 28px;
+        filter: drop-shadow(0 10px 10px rgba(53, 31, 19, 0.16));
+      }
+
+      .cannon {
+        font-size: 30px;
+        filter: drop-shadow(0 10px 12px rgba(36, 32, 28, 0.22));
+      }
+
+      .projectile {
+        font-size: 22px;
+        filter: drop-shadow(0 6px 10px rgba(180, 65, 22, 0.28));
+      }
+
+      .cat.scared {
+        transform: translate3d(0, 0, 0) scale(1.12);
+      }
+
+      .pointer {
+        position: absolute;
+        width: 18px;
+        height: 18px;
+        margin-left: -9px;
+        margin-top: -9px;
+        border-radius: 999px;
+        background: rgba(255, 248, 233, 0.95);
+        border: 2px solid rgba(59, 36, 22, 0.25);
+        box-shadow: 0 0 0 10px rgba(255, 248, 233, 0.15);
+        opacity: 0;
+        transition: opacity 120ms ease-out;
+        pointer-events: none;
+      }
+
+      .pointer.visible {
+        opacity: 1;
+      }
+
+      .board-note {
+        margin-top: 8px;
+        padding: 10px 12px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.38);
+        border: 1px solid var(--line);
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
+      .overlay {
+        position: absolute;
+        inset: auto 16px 16px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: rgba(255, 248, 233, 0.9);
+        border: 1px solid rgba(59, 36, 22, 0.12);
+        font-size: 14px;
+        letter-spacing: 0.03em;
+      }
+
+      .panel {
+        width: 100%;
+        max-width: 100%;
+        border-radius: 28px;
+        padding: 24px;
+      }
+
+      .mobile-only {
+        display: none;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: clamp(32px, 4vw, 48px);
+        line-height: 0.95;
+      }
+
+      .subtitle {
+        margin: 0 0 20px;
+        font-size: 15px;
+        line-height: 1.55;
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+
+      .stat {
+        padding: 14px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.45);
+        border: 1px solid var(--line);
+      }
+
+      .stat-label {
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        opacity: 0.75;
+      }
+
+      .stat-value {
+        margin-top: 6px;
+        font-size: 30px;
+        font-weight: 700;
+      }
+
+      .meter {
+        height: 14px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(59, 36, 22, 0.1);
+        margin-bottom: 18px;
+      }
+
+      .meter-bar {
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, var(--accent), var(--accent-soft));
+        transform-origin: left center;
+      }
+
+      button {
+        width: 100%;
+        border: 0;
+        border-radius: 18px;
+        padding: 15px 18px;
+        font: inherit;
+        font-weight: 700;
+        color: #fff8eb;
+        background: linear-gradient(135deg, var(--accent), #b73112);
+        cursor: pointer;
+        box-shadow: 0 16px 24px rgba(173, 48, 18, 0.24);
+      }
+
+      .tips {
+        margin: 18px 0 0;
+        padding: 0 0 0 18px;
+        line-height: 1.7;
+        font-size: 14px;
+      }
+
+      .status {
+        margin-top: 18px;
+        min-height: 48px;
+        padding: 12px 14px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.4);
+        border: 1px solid var(--line);
+        line-height: 1.45;
+      }
+
+      @media (max-width: 860px) {
+        body {
+          place-items: stretch;
+        }
+
+        .shell {
+          grid-template-columns: 1fr;
+          width: 100%;
+          gap: 8px;
+          min-height: calc(100svh - 24px);
+          align-content: start;
+        }
+
+        .board {
+          aspect-ratio: auto;
+          height: 52svh;
+          min-height: 52svh;
+          max-height: 52svh;
+          border-radius: 22px;
+        }
+
+        .panel {
+          padding: 10px 12px;
+          border-radius: 18px;
+        }
+
+        h1 {
+          margin-bottom: 2px;
+          font-size: clamp(22px, 6vw, 30px);
+        }
+
+        .subtitle,
+        .tips,
+        .status,
+        .board-note {
+          font-size: 12px;
+        }
+
+        .subtitle {
+          display: none;
+          margin: 0;
+          line-height: 1.4;
+        }
+
+        .mobile-only {
+          display: block;
+          margin-bottom: 8px;
+        }
+
+        .desktop-only {
+          display: none;
+        }
+
+        .stats {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 6px;
+          margin-bottom: 8px;
+        }
+
+        .stat {
+          padding: 7px 8px;
+          border-radius: 12px;
+        }
+
+        .stat-label {
+          font-size: 9px;
+        }
+
+        .stat-value {
+          margin-top: 2px;
+          font-size: 18px;
+        }
+
+        .meter {
+          height: 10px;
+          margin-bottom: 8px;
+        }
+
+        button {
+          padding: 11px 14px;
+          border-radius: 14px;
+        }
+
+        .tips {
+          display: none;
+        }
+
+        .status {
+          display: none;
+        }
+
+        .board-note {
+          margin-top: 6px;
+          padding: 8px 10px;
+        }
+
+        .actor {
+          width: 48px;
+          height: 48px;
+          margin-left: -24px;
+          margin-top: -24px;
+          font-size: 30px;
+        }
+
+        .trap {
+          font-size: 24px;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .shell {
+          min-height: calc(100svh - 16px);
+        }
+
+        .board {
+          height: 56svh;
+          min-height: 56svh;
+          max-height: 56svh;
+        }
+
+        h1 {
+          font-size: 22px;
+        }
+
+        .panel {
+          padding: 9px 10px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="board" id="board" aria-label="游戏场地">
+        <div class="lane"></div>
+        <div class="actor mouse" id="mouse" aria-hidden="true">🐭</div>
+        <div class="pointer" id="pointer" aria-hidden="true"></div>
+      </section>
+
+      <aside class="panel">
+        <h1>老鼠抓猫</h1>
+        <p class="subtitle">
+          一场快节奏的巷战追逐小游戏。现在不再计时，但几门大炮会持续追着老鼠开火。
+        </p>
+        <div class="board-note">场边大炮会周期性朝老鼠射击，最后一关的 Boss 还会边闪躲边配合炮火。</div>
+
+        <button class="mobile-only" id="startButtonMobile" type="button">开始游戏</button>
+
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-label">关卡</div>
+            <div class="stat-value" id="level">1</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">得分</div>
+            <div class="stat-value" id="score">0</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">本关已抓</div>
+            <div class="stat-value" id="levelScore">0</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">血量</div>
+            <div class="stat-value" id="health">7</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">炮台</div>
+            <div class="stat-value" id="cannons">2</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">本关目标</div>
+            <div class="stat-value" id="goal">3</div>
+          </div>
+        </div>
+
+        <div class="meter" aria-hidden="true">
+          <div class="meter-bar" id="meterBar"></div>
+        </div>
+
+        <button class="desktop-only" id="startButton" type="button">开始游戏</button>
+
+        <ul class="tips">
+          <li>键盘：方向键或 WASD</li>
+          <li>触屏/鼠标：点击或按住拖动场地，老鼠会持续追目标点</li>
+          <li>每通过一关，猫、夹子和大炮数量都会继续上升</li>
+          <li>最后一关会只剩 1 只 Boss 猫，而且它会突然变向并配合炮火短冲刺</li>
+          <li>踩到小老鼠夹会立刻掉血，血量归零就结束</li>
+        </ul>
+
+        <div class="status" id="status">
+          点击开始游戏，先在炮火里拿下第 1 关。抓满本关目标后再冲进下一关。
+        </div>
+      </aside>
+    </main>
+
+    <script type="module" src="./game.js"></script>
+  </body>
+</html>

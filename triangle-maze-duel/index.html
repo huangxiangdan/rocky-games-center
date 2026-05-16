@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>红绿三角迷宫对战</title>
+    <style>
+      :root {
+        --bg: #12161f;
+        --panel: rgba(14, 19, 30, 0.82);
+        --panel-soft: rgba(255, 255, 255, 0.08);
+        --ink: #eff5ff;
+        --muted: rgba(239, 245, 255, 0.72);
+        --green: #3fbf68;
+        --red: #d44a4a;
+        --accent: #f3c067;
+        --line: rgba(255, 255, 255, 0.1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        min-height: 100svh;
+        color: var(--ink);
+        font-family: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(63, 191, 104, 0.18), transparent 24%),
+          radial-gradient(circle at 85% 12%, rgba(212, 74, 74, 0.2), transparent 20%),
+          linear-gradient(160deg, #12161f, #1e2430 45%, #0f1320);
+        padding: 20px;
+      }
+
+      .shell {
+        width: min(1320px, 100%);
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        gap: 18px;
+        align-items: start;
+      }
+
+      .stage,
+      .panel {
+        border-radius: 24px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+        backdrop-filter: blur(10px);
+      }
+
+      .stage {
+        padding: 18px;
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        height: auto;
+        border-radius: 18px;
+        background: #365a4c;
+      }
+
+      .panel {
+        padding: 22px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(30px, 5vw, 44px);
+        line-height: 0.95;
+      }
+
+      .subtitle {
+        margin: 14px 0 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .stats {
+        margin-top: 18px;
+        display: grid;
+        gap: 12px;
+      }
+
+      .stat {
+        padding: 14px;
+        border-radius: 18px;
+        background: var(--panel-soft);
+      }
+
+      .stat-label {
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .stat-value {
+        margin-top: 6px;
+        font-size: 28px;
+        font-weight: 700;
+      }
+
+      .green {
+        color: var(--green);
+      }
+
+      .red {
+        color: var(--red);
+      }
+
+      button {
+        width: 100%;
+        margin-top: 18px;
+        border: 0;
+        border-radius: 16px;
+        padding: 14px 16px;
+        font: inherit;
+        font-weight: 700;
+        color: #171b24;
+        background: linear-gradient(135deg, #fff2c8, var(--accent));
+        cursor: pointer;
+      }
+
+      .mode {
+        margin-top: 18px;
+        padding: 14px;
+        border-radius: 18px;
+        background: var(--panel-soft);
+      }
+
+      .mode label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .mode select {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 12px 14px;
+        font: inherit;
+        color: var(--ink);
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .controls,
+      .status {
+        margin-top: 18px;
+        padding: 14px;
+        border-radius: 18px;
+        background: var(--panel-soft);
+      }
+
+      .controls h2,
+      .status h2 {
+        margin: 0 0 8px;
+        font-size: 15px;
+      }
+
+      .controls p,
+      .status p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      @media (max-width: 980px) {
+        body {
+          padding: 12px;
+        }
+
+        .shell {
+          grid-template-columns: 1fr;
+        }
+
+        .panel,
+        .stage {
+          padding: 14px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="stage">
+        <canvas id="arena" width="912" height="624" aria-label="迷宫战场"></canvas>
+      </section>
+
+      <aside class="panel">
+        <h1>红绿三角迷宫对战</h1>
+        <p class="subtitle">
+          你可以选择单人模式对战电脑，或者双人模式本地同屏对战。两边都能发射子弹，每人 3 滴血。
+        </p>
+
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-label green">绿三角血量</div>
+            <div class="stat-value green" id="greenHealth">3</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label red">红三角血量</div>
+            <div class="stat-value red" id="redHealth">3</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label green">绿三角命中</div>
+            <div class="stat-value green" id="greenScore">0</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label red">红三角命中</div>
+            <div class="stat-value red" id="redScore">0</div>
+          </div>
+        </div>
+
+        <div class="mode">
+          <label for="modeSelect">模式</label>
+          <select id="modeSelect">
+            <option value="single">单人模式：绿三角 vs 电脑</option>
+            <option value="multi">双人模式：绿三角 vs 红三角</option>
+          </select>
+        </div>
+
+        <button id="startButton" type="button">开始对战</button>
+
+        <section class="controls">
+          <h2>操作</h2>
+          <p>绿三角：WASD 移动，F 开火</p>
+          <p>红三角：方向键移动，/ 开火</p>
+          <p>单人模式下，红三角由电脑控制。</p>
+        </section>
+
+        <section class="status">
+          <h2>状态</h2>
+          <p id="status">单人模式：你控制绿三角，红三角由电脑控制。</p>
+        </section>
+      </aside>
+    </main>
+
+    <script type="module" src="./game.js"></script>
+  </body>
+</html>
