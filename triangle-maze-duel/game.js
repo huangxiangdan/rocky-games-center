@@ -29,17 +29,30 @@ export const WORLD = {
 
 // col/row = grid coordinates, phase = cycle offset (0–1) so spikes stagger
 export const SPIKES = [
-  { col: 5,  row: 2,  phase: 0    },
-  { col: 3,  row: 5,  phase: 0.33 },
-  { col: 9,  row: 3,  phase: 0.17 },
-  { col: 7,  row: 7,  phase: 0.5  },
-  { col: 13, row: 5,  phase: 0.67 },
-  { col: 5,  row: 9,  phase: 0.83 },
+  { col: 5,  row: 2,  phase: 0,    currentCol: 5,  currentRow: 2  },
+  { col: 3,  row: 5,  phase: 0.33, currentCol: 3,  currentRow: 5  },
+  { col: 9,  row: 3,  phase: 0.17, currentCol: 9,  currentRow: 3  },
+  { col: 7,  row: 7,  phase: 0.5,  currentCol: 7,  currentRow: 7  },
+  { col: 13, row: 5,  phase: 0.67, currentCol: 13, currentRow: 5  },
+  { col: 5,  row: 9,  phase: 0.83, currentCol: 5,  currentRow: 9  },
 ];
 
 // Spike cycle: retracted for 1.2 s, extended for 1.0 s (total 2.2 s per phase)
 export const SPIKE_CYCLE   = 2.2;
-export const SPIKE_EXTEND  = 0.45; // fraction of cycle where spike is extended
+export const SPIKE_EXTEND        = 0.45; // fraction of cycle where spike is extended
+export const SPIKE_MOVE_INTERVAL = 2.5;
+
+export function getOpenCells(maze = MAZE_ROWS) {
+  const cells = [];
+  for (let row = 0; row < maze.length; row += 1) {
+    for (let col = 0; col < maze[row].length; col += 1) {
+      if (maze[row][col] === ".") {
+        cells.push({ col, row });
+      }
+    }
+  }
+  return cells;
+}
 
 export function isSpikeExtended(spike, worldTime) {
   const t = ((worldTime / SPIKE_CYCLE) + spike.phase) % 1;
@@ -104,6 +117,7 @@ export function createInitialState() {
     bullets: [],
     keys: new Set(),
     worldTime: 0,
+    spikeMoveTimer: 0,
   };
 }
 
@@ -314,8 +328,8 @@ export function checkSpikeHits(players, worldTime) {
   for (const spike of SPIKES) {
     if (!isSpikeExtended(spike, worldTime)) continue;
 
-    const cx = (spike.col + 0.5) * WORLD.cellSize;
-    const cy = (spike.row + 0.5) * WORLD.cellSize;
+    const cx = (spike.currentCol + 0.5) * WORLD.cellSize;
+    const cy = (spike.currentRow + 0.5) * WORLD.cellSize;
 
     for (const id of ["green", "red"]) {
       const player = next[id];
@@ -377,8 +391,8 @@ function drawSpikes(ctx, worldTime) {
   const half = cs / 2;
 
   for (const spike of SPIKES) {
-    const cx = (spike.col + 0.5) * cs;
-    const cy = (spike.row + 0.5) * cs;
+    const cx = (spike.currentCol + 0.5) * cs;
+    const cy = (spike.currentRow + 0.5) * cs;
     const extended = isSpikeExtended(spike, worldTime);
 
     // Cycle position 0→1; warning = last 0.12 of retracted phase
@@ -475,6 +489,8 @@ function createRuntime() {
   const state = createInitialState();
   let frame = 0;
   let lastTime = 0;
+  let dragging = null;
+  let dragOffset = { x: 0, y: 0 };
 
   const setStatus = (text) => {
     statusNode.textContent = text;
@@ -489,6 +505,12 @@ function createRuntime() {
     state.bullets = next.bullets;
     state.keys = next.keys;
     state.worldTime = next.worldTime;
+    state.spikeMoveTimer = next.spikeMoveTimer;
+    // Reset spike positions to original
+    for (const spike of SPIKES) {
+      spike.currentCol = spike.col;
+      spike.currentRow = spike.row;
+    }
     startButton.textContent = "开始对战";
     setStatus(
       state.mode === "single"
@@ -613,7 +635,7 @@ function createRuntime() {
     lastTime = timestamp;
 
     if (state.running) {
-      const greenInput = getInputVector(state.keys, PLAYER_CONFIG.green.keys);
+      const greenInput = dragging === 'green' ? { x: 0, y: 0 } : getInputVector(state.keys, PLAYER_CONFIG.green.keys);
       const redCanSeeGreen = hasLineOfSight(state.players.red, state.players.green);
       const aiPhase = Math.floor(timestamp / 520);
       const redInput =
@@ -666,6 +688,19 @@ function createRuntime() {
       state.bullets = resolved.bullets;
 
       state.worldTime += dt;
+
+      // Randomly move spikes
+      state.spikeMoveTimer += dt;
+      if (state.spikeMoveTimer >= SPIKE_MOVE_INTERVAL) {
+        state.spikeMoveTimer = 0;
+        const openCells = getOpenCells();
+        for (const spike of SPIKES) {
+          const cell = openCells[Math.floor(Math.random() * openCells.length)];
+          spike.currentCol = cell.col;
+          spike.currentRow = cell.row;
+        }
+      }
+
       state.players = checkSpikeHits(state.players, state.worldTime);
 
       if (!state.players.green.alive || !state.players.red.alive) {
@@ -686,6 +721,54 @@ function createRuntime() {
     render();
     frame = window.requestAnimationFrame(tick);
   };
+
+  // --- Touch / Mouse drag support ---
+  const getCanvasCoords = (clientX, clientY) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY,
+    };
+  };
+
+  const onDragStart = (clientX, clientY) => {
+    const pos = getCanvasCoords(clientX, clientY);
+    const green = state.players.green;
+    const dist = Math.hypot(pos.x - green.x, pos.y - green.y);
+    if (dist < WORLD.playerRadius + 10) {
+      dragging = 'green';
+      dragOffset = { x: green.x - pos.x, y: green.y - pos.y };
+    }
+  };
+
+  const onDragMove = (clientX, clientY) => {
+    if (!dragging) return;
+    const pos = getCanvasCoords(clientX, clientY);
+    const player = state.players[dragging];
+    let newX = pos.x + dragOffset.x;
+    let newY = pos.y + dragOffset.y;
+    newX = clamp(newX, WORLD.playerRadius, WORLD.width - WORLD.playerRadius);
+    newY = clamp(newY, WORLD.playerRadius, WORLD.height - WORLD.playerRadius);
+    if (!collidesWithMaze(newX, player.y, WORLD.playerRadius)) {
+      player.x = newX;
+    }
+    if (!collidesWithMaze(player.x, newY, WORLD.playerRadius)) {
+      player.y = newY;
+    }
+  };
+
+  const onDragEnd = () => {
+    dragging = null;
+  };
+
+  canvas.addEventListener('mousedown', (e) => { e.preventDefault(); onDragStart(e.clientX, e.clientY); });
+  canvas.addEventListener('mousemove', (e) => { e.preventDefault(); onDragMove(e.clientX, e.clientY); });
+  canvas.addEventListener('mouseup', (e) => { e.preventDefault(); onDragEnd(); });
+  canvas.addEventListener('touchstart', (e) => { e.preventDefault(); const t = e.touches[0]; onDragStart(t.clientX, t.clientY); }, { passive: false });
+  canvas.addEventListener('touchmove', (e) => { e.preventDefault(); const t = e.touches[0]; onDragMove(t.clientX, t.clientY); }, { passive: false });
+  canvas.addEventListener('touchend', (e) => { e.preventDefault(); onDragEnd(); }, { passive: false });
 
   window.addEventListener("keydown", (event) => onKeyChange(event, true));
   window.addEventListener("keyup", (event) => onKeyChange(event, false));
