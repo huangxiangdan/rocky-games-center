@@ -14,7 +14,7 @@ export const WORLD = {
   projectileSpeed: 290,
   catCount: 6,
   trapCount: 5,
-  maxHealth: 7,
+  maxHealth: 5,
   trapDamage: 1,
   cannonDamage: 1,
 };
