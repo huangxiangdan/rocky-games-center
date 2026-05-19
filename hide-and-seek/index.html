@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>捉迷藏 - 迷宫大冒险</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="gameCanvas" style="touch-action: none;"></canvas>
+    <div id="hud">
+      <div id="level-display">关卡 1</div>
+      <div id="timer-display">⏱️ 60</div>
+      <div id="caught-display">找到: 0/5</div>
+    </div>
+    <div id="overlay" class="show">
+      <div id="overlay-content">
+        <h1 id="overlay-title">捉迷藏 🙈</h1>
+        <p id="overlay-text">在迷宫里找到所有小伙伴！</p>
+        <button id="overlay-btn" onclick="startGame()">开始游戏</button>
+      </div>
+    </div>
+  </div>
+  <script src="game.js"></script>
+</body>
+</html>
