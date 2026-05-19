@@ -675,25 +675,53 @@ function createRuntime() {
   };
 
   board.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "touch") {
+      return;
+    }
     activePointerId = event.pointerId;
     board.setPointerCapture(event.pointerId);
     state.pointerTarget = screenToWorld(event);
   });
 
   board.addEventListener("pointermove", (event) => {
+    if (event.pointerType === "touch") {
+      return;
+    }
     if (activePointerId !== event.pointerId) {
       return;
     }
     state.pointerTarget = screenToWorld(event);
   });
 
-  board.addEventListener("pointerup", () => {
+  board.addEventListener("pointerup", (event) => {
+    if (event.pointerType === "touch") {
+      return;
+    }
     activePointerId = null;
   });
 
-  board.addEventListener("pointercancel", () => {
+  board.addEventListener("pointercancel", (event) => {
+    if (event.pointerType === "touch") {
+      return;
+    }
     activePointerId = null;
   });
+
+  board.addEventListener("touchstart", (event) => {
+    event.preventDefault();
+    const touch = event.changedTouches[0];
+    state.pointerTarget = screenToWorld({ clientX: touch.clientX, clientY: touch.clientY });
+  }, { passive: false });
+
+  board.addEventListener("touchmove", (event) => {
+    event.preventDefault();
+    const touch = event.changedTouches[0];
+    state.pointerTarget = screenToWorld({ clientX: touch.clientX, clientY: touch.clientY });
+  }, { passive: false });
+
+  board.addEventListener("touchend", (event) => {
+    event.preventDefault();
+  }, { passive: false });
 
   window.addEventListener("keydown", (event) => onKeyChange(event, true));
   window.addEventListener("keyup", (event) => onKeyChange(event, false));
