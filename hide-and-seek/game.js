@@ -12,9 +12,9 @@ const caughtDisplay = document.getElementById('caught-display');
 
 // ---- 关卡配置 ----
 const LEVELS = [
-  { maze: 0, npcCount: 4, time: 60, npcSpeed: 1.2, name: '关卡 1' },
-  { maze: 1, npcCount: 5, time: 55, npcSpeed: 1.5, name: '关卡 2' },
-  { maze: 2, npcCount: 6, time: 50, npcSpeed: 1.8, name: '关卡 3' },
+  { maze: 0, npcCount: 4, npcSpeed: 1.2, name: '关卡 1' },
+  { maze: 1, npcCount: 5, npcSpeed: 1.5, name: '关卡 2' },
+  { maze: 2, npcCount: 6, npcSpeed: 1.8, name: '关卡 3' },
 ];
 
 // ---- 预设迷宫 (1=墙, 0=路) ----
@@ -80,7 +80,7 @@ let maze = [];
 let cellSize = 0;
 let offsetX = 0;
 let offsetY = 0;
-let timeLeft = 60;
+let timeLeft = Infinity;
 let timerInterval = null;
 let player = null;
 let npcs = [];
@@ -275,7 +275,7 @@ function startGame() {
 function startLevel() {
   const level = LEVELS[currentLevel];
   maze = MAZES[level.maze].map(row => [...row]);
-  timeLeft = level.time;
+  timeLeft = Infinity;
   caughtCount = 0;
   totalNpcs = level.npcCount;
   particles = [];
@@ -290,21 +290,13 @@ function startLevel() {
   npcs = createNPCs(level.npcCount, level.npcSpeed);
 
   levelDisplay.textContent = level.name;
-  timerDisplay.textContent = '⏱️ ' + timeLeft;
+  timerDisplay.style.display = 'none';
   caughtDisplay.textContent = '找到: 0/' + totalNpcs;
 
   overlay.classList.remove('show');
   gameState = 'playing';
 
-  if (timerInterval) clearInterval(timerInterval);
-  timerInterval = setInterval(() => {
-    if (gameState !== 'playing') return;
-    timeLeft--;
-    timerDisplay.textContent = '⏱️ ' + timeLeft;
-    if (timeLeft <= 0) {
-      gameOver(false);
-    }
-  }, 1000);
+  // No timer - game has no time limit
 
   if (animFrame) cancelAnimationFrame(animFrame);
   gameLoop();
@@ -318,8 +310,7 @@ function gameOver(won) {
   if (won) {
     if (currentLevel < LEVELS.length - 1) {
       overlayTitle.textContent = '太棒了！🎉';
-      const stars = timeLeft > 30 ? '⭐⭐⭐' : timeLeft > 15 ? '⭐⭐' : '⭐';
-      overlayText.textContent = `${stars} 用了 ${LEVELS[currentLevel].time - timeLeft} 秒！`;
+      overlayText.textContent = '⭐⭐⭐ 你找到了所有小伙伴！';
       overlayBtn.textContent = '下一关';
       overlayBtn.onclick = () => {
         currentLevel++;
@@ -332,7 +323,7 @@ function gameOver(won) {
       overlayBtn.onclick = startGame;
     }
   } else {
-    overlayTitle.textContent = '时间到了 😢';
+    overlayTitle.textContent = '没找到全部 😢';
     overlayText.textContent = `找到了 ${caughtCount}/${totalNpcs} 个小伙伴`;
     overlayBtn.textContent = '再试一次';
     overlayBtn.onclick = () => startLevel();
