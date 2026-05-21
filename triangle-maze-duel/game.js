@@ -102,6 +102,7 @@ export function createPlayer(id) {
     cooldown: 0,
     shield: WORLD.respawnShield,
     alive: true,
+    hitFlash: 0,
   };
 }
 
@@ -364,17 +365,38 @@ export function bulletHitsPlayer(bullet, player) {
   return Math.hypot(bullet.x - player.x, bullet.y - player.y) <= WORLD.playerRadius + WORLD.bulletRadius;
 }
 
-export function applyBulletHit(player) {
+export function applyBulletHit(player, bullet) {
   const nextHealth = Math.max(0, player.health - 1);
-  const spawn = PLAYER_CONFIG[player.id].spawn;
+
+  if (bullet) {
+    // Knockback from bullet hit
+    const dx = player.x - bullet.x;
+    const dy = player.y - bullet.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const knockback = 40;
+    let newX = player.x + (dx / len) * knockback;
+    let newY = player.y + (dy / len) * knockback;
+    newX = clamp(newX, WORLD.playerRadius, WORLD.width - WORLD.playerRadius);
+    newY = clamp(newY, WORLD.playerRadius, WORLD.height - WORLD.playerRadius);
+    if (!collidesWithMaze(newX, player.y, WORLD.playerRadius)) {
+      player.x = newX;
+    }
+    if (!collidesWithMaze(player.x, newY, WORLD.playerRadius)) {
+      player.y = newY;
+    }
+  } else {
+    // Spike hit: teleport back to spawn
+    const spawn = PLAYER_CONFIG[player.id].spawn;
+    player.x = spawn.x;
+    player.y = spawn.y;
+  }
 
   return {
     ...player,
     health: nextHealth,
-    x: spawn.x,
-    y: spawn.y,
     shield: WORLD.respawnShield,
     alive: nextHealth > 0,
+    hitFlash: 0.3,
   };
 }
 
@@ -393,7 +415,7 @@ export function checkSpikeHits(players, worldTime) {
       if (!player.alive || player.shield > 0) continue;
 
       if (Math.abs(player.x - cx) < half - 4 && Math.abs(player.y - cy) < half - 4) {
-        next = { ...next, [id]: applyBulletHit(player) };
+        next = { ...next, [id]: applyBulletHit(player, null) };
       }
     }
   }
@@ -412,7 +434,7 @@ export function resolveBulletHits(players, bullets) {
     if (bulletHitsPlayer(bullet, target)) {
       nextPlayers = {
         ...nextPlayers,
-        [targetId]: applyBulletHit(target),
+        [targetId]: applyBulletHit(target, bullet),
       };
       continue;
     }
@@ -490,16 +512,19 @@ function drawTriangle(ctx, player) {
   ctx.save();
   ctx.translate(player.x, player.y);
   ctx.rotate(player.angle);
-  ctx.globalAlpha = player.shield > 0 ? 0.72 : 1;
+
+  // Hit flash: white overlay
+  const isFlashing = player.hitFlash > 0 && Math.floor(player.hitFlash * 10) % 2 === 0;
+  ctx.globalAlpha = player.shield > 0 ? 0.72 : (isFlashing ? 0.5 : 1);
 
   // Draw gun barrel
-  ctx.fillStyle = "#888";
+  ctx.fillStyle = isFlashing ? "#fff" : "#888";
   ctx.fillRect(10, -3, 14, 6);
   // Gun tip highlight
-  ctx.fillStyle = "#aaa";
+  ctx.fillStyle = isFlashing ? "#fff" : "#aaa";
   ctx.fillRect(20, -2, 4, 4);
   // Gun body
-  ctx.fillStyle = "#666";
+  ctx.fillStyle = isFlashing ? "#fff" : "#666";
   ctx.fillRect(4, -5, 10, 10);
 
   // Draw triangle body
@@ -508,10 +533,33 @@ function drawTriangle(ctx, player) {
   ctx.lineTo(-12, -12);
   ctx.lineTo(-12, 12);
   ctx.closePath();
-  ctx.fillStyle = PLAYER_CONFIG[player.id].color;
+  ctx.fillStyle = isFlashing ? "#fff" : PLAYER_CONFIG[player.id].color;
   ctx.fill();
 
   ctx.restore();
+
+  // Draw health bar above player
+  if (player.alive) {
+    const barWidth = 30;
+    const barHeight = 4;
+    const barX = player.x - barWidth / 2;
+    const barY = player.y - WORLD.playerRadius - 10;
+    const healthRatio = player.health / WORLD.maxHealth;
+
+    // Background
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.fillRect(barX, barY, barWidth, barHeight);
+
+    // Health fill
+    const healthColor = healthRatio > 0.5 ? "#3fbf68" : healthRatio > 0.25 ? "#f1c40f" : "#e74c3c";
+    ctx.fillStyle = healthColor;
+    ctx.fillRect(barX, barY, barWidth * healthRatio, barHeight);
+
+    // Border
+    ctx.strokeStyle = "rgba(255,255,255,0.6)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX, barY, barWidth, barHeight);
+  }
 }
 
 function drawBullets(ctx, bullets) {
@@ -719,6 +767,7 @@ function createRuntime() {
             ...state.players.green,
             cooldown: Math.max(0, state.players.green.cooldown - dt),
             shield: Math.max(0, state.players.green.shield - dt),
+            hitFlash: Math.max(0, state.players.green.hitFlash - dt),
           },
           greenInput,
           dt,
@@ -728,6 +777,7 @@ function createRuntime() {
             ...state.players.red,
             cooldown: Math.max(0, state.players.red.cooldown - dt),
             shield: Math.max(0, state.players.red.shield - dt),
+            hitFlash: Math.max(0, state.players.red.hitFlash - dt),
           },
           redInput,
           dt,
@@ -834,10 +884,6 @@ function createRuntime() {
     if (!collidesWithMaze(player.x, newY, WORLD.playerRadius)) {
       player.y = newY;
     }
-  };
-
-  const onDragEnd = () => {
-    dragging = null;
   };
 
   const onDragEnd = () => {
