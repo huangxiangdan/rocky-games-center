@@ -197,39 +197,96 @@ export function hasLineOfSight(from, to, maze = MAZE_ROWS, cellSize = WORLD.cell
   return true;
 }
 
+// BFS from a world position, returns a 2D array of distances (-1 = unreachable/wall)
+function bfsDistances(fromX, fromY, maze = MAZE_ROWS, cellSize = WORLD.cellSize) {
+  const rows = maze.length;
+  const cols = maze[0].length;
+  const dist = Array.from({ length: rows }, () => new Int16Array(cols).fill(-1));
+  const startCol = Math.floor(fromX / cellSize);
+  const startRow = Math.floor(fromY / cellSize);
+  if (startRow < 0 || startRow >= rows || startCol < 0 || startCol >= cols) return dist;
+  dist[startRow][startCol] = 0;
+  const queue = [[startCol, startRow]];
+  let head = 0;
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  while (head < queue.length) {
+    const [cx, cy] = queue[head++];
+    const d = dist[cy][cx];
+    for (const [ddx, ddy] of dirs) {
+      const nx = cx + ddx, ny = cy + ddy;
+      if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
+      if (dist[ny][nx] !== -1) continue;
+      if (maze[ny][nx] === '#') continue;
+      dist[ny][nx] = d + 1;
+      queue.push([nx, ny]);
+    }
+  }
+  return dist;
+}
+
+// Count open neighbors for a cell (dead-end detection)
+function countOpenNeighbors(col, row, maze = MAZE_ROWS) {
+  let count = 0;
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  for (const [dx, dy] of dirs) {
+    const nc = col + dx, nr = row + dy;
+    if (nr >= 0 && nr < maze.length && nc >= 0 && nc < maze[0].length && maze[nr][nc] !== '#') {
+      count++;
+    }
+  }
+  return count;
+}
+
 export function getAiInputVector(ai, target, phase = 0, canSeeTarget = true) {
-  const dx = target.x - ai.x;
-  const dy = target.y - ai.y;
-  const distance = Math.hypot(dx, dy);
+  const cellSize = WORLD.cellSize;
+  const aiCol = Math.floor(ai.x / cellSize);
+  const aiRow = Math.floor(ai.y / cellSize);
 
-  if (canSeeTarget) {
-    if (distance > 220) {
-      return normalizeVector(dx, dy);
+  // BFS from the target (chaser) to know distances
+  const targetDist = bfsDistances(target.x, target.y);
+
+  // Check all 4 directions + stay
+  const dirs = [
+    { dx: 0, dy: -1 }, // up
+    { dx: 0, dy: 1 },  // down
+    { dx: -1, dy: 0 }, // left
+    { dx: 1, dy: 0 },  // right
+  ];
+
+  let bestScore = -Infinity;
+  let bestDir = { x: 0, y: 0 };
+
+  for (const dir of dirs) {
+    const nc = aiCol + dir.dx;
+    const nr = aiRow + dir.dy;
+
+    // Must be a valid open cell
+    if (nr < 0 || nr >= MAZE_ROWS.length || nc < 0 || nc >= MAZE_ROWS[0].length) continue;
+    if (MAZE_ROWS[nr][nc] === '#') continue;
+
+    const d = targetDist[nr][nc];
+    if (d === -1) continue; // unreachable
+
+    // Score: prefer cells far from target
+    // Bonus for cells with more open neighbors (avoid dead ends)
+    const neighbors = countOpenNeighbors(nc, nr);
+    const deadEndPenalty = neighbors <= 1 ? -8 : 0;
+    const score = d + deadEndPenalty;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestDir = normalizeVector(dir.dx, dir.dy);
     }
-
-    if (distance < 150) {
-      return normalizeVector(-dx, -dy);
-    }
-
-    const strafeDirection = phase % 2 === 0 ? 1 : -1;
-    return normalizeVector(-dy * strafeDirection, dx * strafeDirection);
   }
 
-  const horizontalFirst = phase % 2 === 0;
-  if (horizontalFirst && dx !== 0) {
-    return normalizeVector(Math.sign(dx), 0);
-  }
-  if (!horizontalFirst && dy !== 0) {
-    return normalizeVector(0, Math.sign(dy));
-  }
-  if (dx !== 0) {
-    return normalizeVector(Math.sign(dx), 0);
-  }
-  if (dy !== 0) {
-    return normalizeVector(0, Math.sign(dy));
+  // If no good direction found, fall back to simple evasion
+  if (bestScore === -Infinity) {
+    const dx = target.x - ai.x;
+    const dy = target.y - ai.y;
+    return normalizeVector(-dx, -dy);
   }
 
-  return { x: 0, y: 0 };
+  return bestDir;
 }
 
 export function shouldAiFire(ai, target, canSeeTarget) {
@@ -433,14 +490,27 @@ function drawTriangle(ctx, player) {
   ctx.save();
   ctx.translate(player.x, player.y);
   ctx.rotate(player.angle);
+  ctx.globalAlpha = player.shield > 0 ? 0.72 : 1;
+
+  // Draw gun barrel
+  ctx.fillStyle = "#888";
+  ctx.fillRect(10, -3, 14, 6);
+  // Gun tip highlight
+  ctx.fillStyle = "#aaa";
+  ctx.fillRect(20, -2, 4, 4);
+  // Gun body
+  ctx.fillStyle = "#666";
+  ctx.fillRect(4, -5, 10, 10);
+
+  // Draw triangle body
   ctx.beginPath();
   ctx.moveTo(18, 0);
   ctx.lineTo(-12, -12);
   ctx.lineTo(-12, 12);
   ctx.closePath();
   ctx.fillStyle = PLAYER_CONFIG[player.id].color;
-  ctx.globalAlpha = player.shield > 0 ? 0.72 : 1;
   ctx.fill();
+
   ctx.restore();
 }
 
@@ -514,7 +584,7 @@ function createRuntime() {
     startButton.textContent = "开始对战";
     setStatus(
       state.mode === "single"
-        ? "单人模式：你控制绿三角，红三角由电脑控制。"
+        ? "单人模式：你控制绿三角，红三角由电脑控制。按F/空格开枪，点击屏幕瞄准射击！"
         : "双人模式：绿三角和红三角都各有 3 滴血。先打空对方血量的人获胜。",
     );
     render();
@@ -532,7 +602,7 @@ function createRuntime() {
     startButton.textContent = "重新开始";
     setStatus(
       state.mode === "single"
-        ? "单人模式开战。电脑会找视线压你，尽量别被堵在墙角。"
+        ? "单人模式开战。按F/空格开枪，点击屏幕瞄准射击！电脑会追着你打，尽量别被堵在墙角。"
         : "双人模式开战。躲开墙角，找角度开火。",
     );
     render();
@@ -602,7 +672,7 @@ function createRuntime() {
 
   const onKeyChange = (event, pressed) => {
     const key = event.key.toLowerCase();
-    const allowed = ["w", "a", "s", "d", "f", "arrowup", "arrowdown", "arrowleft", "arrowright", "/"];
+    const allowed = ["w", "a", "s", "d", "f", " ", "arrowup", "arrowdown", "arrowleft", "arrowright", "/"];
 
     if (!allowed.includes(key)) {
       return;
@@ -665,11 +735,17 @@ function createRuntime() {
       };
 
       let nextBullets = stepBullets(state.bullets, dt);
-      nextBullets = maybeFire(state.players.green, PLAYER_CONFIG.green.keys.fire, nextBullets);
 
+      // Single player: green can fire with F, Space, or tap
       if (state.mode === "single") {
-        const red = state.players.red;
         const green = state.players.green;
+        const red = state.players.red;
+
+        // Green fires with F or Space
+        if ((state.keys.has(PLAYER_CONFIG.green.keys.fire) || state.keys.has(" ")) && green.cooldown <= 0 && green.alive) {
+          green.cooldown = WORLD.fireCooldown;
+          nextBullets = nextBullets.concat(createBullet(green));
+        }
 
         if (green.alive) {
           red.angle = Math.atan2(green.y - red.y, green.x - red.x);
@@ -680,6 +756,7 @@ function createRuntime() {
           nextBullets = nextBullets.concat(createBullet(red));
         }
       } else {
+        nextBullets = maybeFire(state.players.green, PLAYER_CONFIG.green.keys.fire, nextBullets);
         nextBullets = maybeFire(state.players.red, PLAYER_CONFIG.red.keys.fire, nextBullets);
       }
 
@@ -763,12 +840,46 @@ function createRuntime() {
     dragging = null;
   };
 
-  canvas.addEventListener('mousedown', (e) => { e.preventDefault(); onDragStart(e.clientX, e.clientY); });
+  const onDragEnd = () => {
+    dragging = null;
+  };
+
+  // Tap on empty area to fire (single player mode)
+  let tapStartTime = 0;
+  let tapStartPos = null;
+
+  canvas.addEventListener('mousedown', (e) => { e.preventDefault(); onDragStart(e.clientX, e.clientY); tapStartTime = Date.now(); tapStartPos = getCanvasCoords(e.clientX, e.clientY); });
   canvas.addEventListener('mousemove', (e) => { e.preventDefault(); onDragMove(e.clientX, e.clientY); });
-  canvas.addEventListener('mouseup', (e) => { e.preventDefault(); onDragEnd(); });
-  canvas.addEventListener('touchstart', (e) => { e.preventDefault(); const t = e.touches[0]; onDragStart(t.clientX, t.clientY); }, { passive: false });
+  canvas.addEventListener('mouseup', (e) => {
+    e.preventDefault();
+    // If it was a quick tap not on the player, fire
+    if (dragging === null && tapStartPos && Date.now() - tapStartTime < 250) {
+      const pos = getCanvasCoords(e.clientX, e.clientY);
+      const green = state.players.green;
+      const dist = Math.hypot(pos.x - green.x, pos.y - green.y);
+      if (dist > WORLD.playerRadius + 15 && state.mode === 'single' && green.alive && green.cooldown <= 0) {
+        // Aim toward tap position and fire
+        green.angle = Math.atan2(pos.y - green.y, pos.x - green.x);
+        green.cooldown = WORLD.fireCooldown;
+        state.bullets = state.bullets.concat(createBullet(green));
+      }
+    }
+    onDragEnd();
+  });
+  canvas.addEventListener('touchstart', (e) => { e.preventDefault(); const t = e.touches[0]; onDragStart(t.clientX, t.clientY); tapStartTime = Date.now(); tapStartPos = getCanvasCoords(t.clientX, t.clientY); }, { passive: false });
   canvas.addEventListener('touchmove', (e) => { e.preventDefault(); const t = e.touches[0]; onDragMove(t.clientX, t.clientY); }, { passive: false });
-  canvas.addEventListener('touchend', (e) => { e.preventDefault(); onDragEnd(); }, { passive: false });
+  canvas.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    if (dragging === null && tapStartPos && Date.now() - tapStartTime < 250) {
+      const green = state.players.green;
+      if (state.mode === 'single' && green.alive && green.cooldown <= 0) {
+        green.angle = Math.atan2(tapStartPos.y - green.y, tapStartPos.x - green.x);
+        green.cooldown = WORLD.fireCooldown;
+        state.bullets = state.bullets.concat(createBullet(green));
+      }
+    }
+    onDragEnd();
+  }, { passive: false });
 
   window.addEventListener("keydown", (event) => onKeyChange(event, true));
   window.addEventListener("keyup", (event) => onKeyChange(event, false));
