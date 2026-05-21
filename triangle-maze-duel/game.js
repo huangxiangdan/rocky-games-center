@@ -27,6 +27,20 @@ export const WORLD = {
   respawnShield: 0.8,
 };
 
+// Weapon definitions
+export const WEAPONS = {
+  pistol:  { name: "手枪🔫",   icon: "🔫", color: "#ccc",    bullets: 1, spread: 0,    damage: 1, piercing: false, explosive: false, cooldown: 0.34 },
+  shotgun: { name: "散弹枪🔫", icon: "🔫", color: "#f39c12", bullets: 3, spread: 0.25,  damage: 1, piercing: false, explosive: false, cooldown: 0.5  },
+  bomb:    { name: "炸弹💣",   icon: "💣", color: "#e74c3c", bullets: 1, spread: 0,    damage: 3, piercing: false, explosive: true,  cooldown: 0.8  },
+  laser:   { name: "激光⚡",   icon: "⚡", color: "#9b59b6", bullets: 1, spread: 0,    damage: 1, piercing: true,  explosive: false, cooldown: 0.5  },
+  shield:  { name: "护盾🛡️",  icon: "🛡️", color: "#3498db", bullets: 0, spread: 0,    damage: 0, piercing: false, explosive: false, cooldown: 0    },
+};
+
+export const WEAPON_DROP_CHANCE = 0.012; // per frame chance to spawn a weapon
+export const WEAPON_DROP_DURATION = 8; // seconds before weapon disappears
+export const WEAPON_EFFECT_DURATION = 6; // seconds for weapon effect
+export const SHIELD_DURATION = 5; // seconds of invincibility
+
 // col/row = grid coordinates, phase = cycle offset (0–1) so spikes stagger
 export const SPIKES = [
   { col: 5,  row: 2,  phase: 0,    currentCol: 5,  currentRow: 2  },
@@ -90,19 +104,40 @@ export function normalizeVector(dx, dy) {
   return { x: dx / length, y: dy / length };
 }
 
-export function createPlayer(id) {
+export function createPlayer(id, level = 1, isBoss = false) {
   const config = PLAYER_CONFIG[id];
+  const health = isBoss ? 10 : (id === "red" ? 2 + level : WORLD.maxHealth);
 
   return {
     id,
     x: config.spawn.x,
     y: config.spawn.y,
     angle: id === "green" ? 0 : Math.PI,
-    health: WORLD.maxHealth,
+    health,
+    maxHealth: health,
     cooldown: 0,
     shield: WORLD.respawnShield,
     alive: true,
     hitFlash: 0,
+    weapon: "pistol",
+    weaponTimer: 0,
+    shieldTimer: 0,
+    isBoss,
+    bossScale: isBoss ? 2 : 1,
+  };
+}
+
+export function createWeaponDrop() {
+  const openCells = getOpenCells();
+  const cell = openCells[Math.floor(Math.random() * openCells.length)];
+  const types = ["shotgun", "bomb", "laser", "shield"];
+  const type = types[Math.floor(Math.random() * types.length)];
+  return {
+    type,
+    x: (cell.col + 0.5) * WORLD.cellSize,
+    y: (cell.row + 0.5) * WORLD.cellSize,
+    timer: WEAPON_DROP_DURATION,
+    glow: 0,
   };
 }
 
@@ -111,11 +146,15 @@ export function createInitialState() {
     running: false,
     mode: "single",
     winner: null,
+    level: 1,
+    levelTransition: 0, // countdown for level transition
+    bossWarning: 0, // countdown for boss warning
     players: {
-      green: createPlayer("green"),
-      red: createPlayer("red"),
+      green: createPlayer("green", 1, false),
+      red: createPlayer("red", 1, false),
     },
     bullets: [],
+    weaponDrops: [],
     keys: new Set(),
     worldTime: 0,
     spikeMoveTimer: 0,
@@ -291,27 +330,28 @@ export function getAiInputVector(ai, target, phase = 0, canSeeTarget = true) {
 }
 
 export function shouldAiFire(ai, target, canSeeTarget) {
-  return ai.alive && target.alive && target.shield <= 0 && ai.cooldown <= 0 && canSeeTarget;
+  return ai.alive && target.alive && target.shield <= 0 && target.shieldTimer <= 0 && ai.cooldown <= 0 && canSeeTarget;
 }
 
 export function movePlayer(player, vector, dt, maze = MAZE_ROWS) {
+  const speed = player.isBoss ? WORLD.playerSpeed * 1.3 : WORLD.playerSpeed;
   let next = { ...player };
   const stepX = clamp(
-    player.x + vector.x * WORLD.playerSpeed * dt,
-    WORLD.playerRadius,
-    WORLD.width - WORLD.playerRadius,
+    player.x + vector.x * speed * dt,
+    WORLD.playerRadius * player.bossScale,
+    WORLD.width - WORLD.playerRadius * player.bossScale,
   );
   const stepY = clamp(
-    player.y + vector.y * WORLD.playerSpeed * dt,
-    WORLD.playerRadius,
-    WORLD.height - WORLD.playerRadius,
+    player.y + vector.y * speed * dt,
+    WORLD.playerRadius * player.bossScale,
+    WORLD.height - WORLD.playerRadius * player.bossScale,
   );
 
-  if (!collidesWithMaze(stepX, player.y, WORLD.playerRadius, maze)) {
+  if (!collidesWithMaze(stepX, player.y, WORLD.playerRadius * player.bossScale, maze)) {
     next.x = stepX;
   }
 
-  if (!collidesWithMaze(next.x, stepY, WORLD.playerRadius, maze)) {
+  if (!collidesWithMaze(next.x, stepY, WORLD.playerRadius * player.bossScale, maze)) {
     next.y = stepY;
   }
 
@@ -322,18 +362,33 @@ export function movePlayer(player, vector, dt, maze = MAZE_ROWS) {
   return next;
 }
 
-export function createBullet(player) {
-  const noseOffset = WORLD.playerRadius + 8;
-  const vx = Math.cos(player.angle) * WORLD.bulletSpeed;
-  const vy = Math.sin(player.angle) * WORLD.bulletSpeed;
+export function createBullet(player, weaponType = "pistol") {
+  const weapon = WEAPONS[weaponType] || WEAPONS.pistol;
+  const noseOffset = WORLD.playerRadius * player.bossScale + 8;
+  const bullets = [];
 
-  return {
-    owner: player.id,
-    x: player.x + Math.cos(player.angle) * noseOffset,
-    y: player.y + Math.sin(player.angle) * noseOffset,
-    vx,
-    vy,
-  };
+  for (let i = 0; i < weapon.bullets; i++) {
+    const spreadAngle = weapon.bullets > 1
+      ? (i - (weapon.bullets - 1) / 2) * weapon.spread
+      : 0;
+    const angle = player.angle + spreadAngle;
+    const vx = Math.cos(angle) * WORLD.bulletSpeed;
+    const vy = Math.sin(angle) * WORLD.bulletSpeed;
+
+    bullets.push({
+      owner: player.id,
+      x: player.x + Math.cos(angle) * noseOffset,
+      y: player.y + Math.sin(angle) * noseOffset,
+      vx,
+      vy,
+      damage: weapon.damage,
+      piercing: weapon.piercing,
+      explosive: weapon.explosive,
+      weaponType,
+    });
+  }
+
+  return bullets;
 }
 
 export function stepBullet(bullet, dt) {
@@ -358,30 +413,36 @@ export function stepBullets(bullets, dt, maze = MAZE_ROWS) {
 }
 
 export function bulletHitsPlayer(bullet, player) {
-  if (bullet.owner === player.id || player.shield > 0 || !player.alive) {
+  if (bullet.owner === player.id || !player.alive) {
+    return false;
+  }
+  // Shield (respawn or weapon) blocks hits
+  if (player.shield > 0 || player.shieldTimer > 0) {
     return false;
   }
 
-  return Math.hypot(bullet.x - player.x, bullet.y - player.y) <= WORLD.playerRadius + WORLD.bulletRadius;
+  const effectiveRadius = WORLD.playerRadius * player.bossScale;
+  return Math.hypot(bullet.x - player.x, bullet.y - player.y) <= effectiveRadius + WORLD.bulletRadius;
 }
 
 export function applyBulletHit(player, bullet) {
-  const nextHealth = Math.max(0, player.health - 1);
+  const dmg = bullet ? (bullet.damage || 1) : 1;
+  const nextHealth = Math.max(0, player.health - dmg);
 
   if (bullet) {
     // Knockback from bullet hit
     const dx = player.x - bullet.x;
     const dy = player.y - bullet.y;
     const len = Math.hypot(dx, dy) || 1;
-    const knockback = 40;
+    const knockback = bullet.explosive ? 80 : 40;
     let newX = player.x + (dx / len) * knockback;
     let newY = player.y + (dy / len) * knockback;
-    newX = clamp(newX, WORLD.playerRadius, WORLD.width - WORLD.playerRadius);
-    newY = clamp(newY, WORLD.playerRadius, WORLD.height - WORLD.playerRadius);
-    if (!collidesWithMaze(newX, player.y, WORLD.playerRadius)) {
+    newX = clamp(newX, WORLD.playerRadius * player.bossScale, WORLD.width - WORLD.playerRadius * player.bossScale);
+    newY = clamp(newY, WORLD.playerRadius * player.bossScale, WORLD.height - WORLD.playerRadius * player.bossScale);
+    if (!collidesWithMaze(newX, player.y, WORLD.playerRadius * player.bossScale)) {
       player.x = newX;
     }
-    if (!collidesWithMaze(player.x, newY, WORLD.playerRadius)) {
+    if (!collidesWithMaze(player.x, newY, WORLD.playerRadius * player.bossScale)) {
       player.y = newY;
     }
   } else {
@@ -412,7 +473,7 @@ export function checkSpikeHits(players, worldTime) {
 
     for (const id of ["green", "red"]) {
       const player = next[id];
-      if (!player.alive || player.shield > 0) continue;
+      if (!player.alive || player.shield > 0 || player.shieldTimer > 0) continue;
 
       if (Math.abs(player.x - cx) < half - 4 && Math.abs(player.y - cy) < half - 4) {
         next = { ...next, [id]: applyBulletHit(player, null) };
@@ -426,6 +487,7 @@ export function checkSpikeHits(players, worldTime) {
 export function resolveBulletHits(players, bullets) {
   let nextPlayers = { ...players };
   const keptBullets = [];
+  const hitPlayerIds = new Set();
 
   for (const bullet of bullets) {
     const targetId = bullet.owner === "green" ? "red" : "green";
@@ -436,6 +498,25 @@ export function resolveBulletHits(players, bullets) {
         ...nextPlayers,
         [targetId]: applyBulletHit(target, bullet),
       };
+      // Piercing bullets pass through
+      if (bullet.piercing) {
+        keptBullets.push(bullet);
+      }
+      // Explosive bullets: damage nearby area
+      if (bullet.explosive) {
+        const explosionRadius = 60;
+        const otherId = bullet.owner;
+        // Check if the owner is also in explosion range (self-damage)
+        const owner = nextPlayers[otherId];
+        if (owner.alive && owner.shield <= 0 && owner.shieldTimer <= 0) {
+          if (Math.hypot(bullet.x - owner.x, bullet.y - owner.y) <= explosionRadius) {
+            nextPlayers = {
+              ...nextPlayers,
+              [otherId]: applyBulletHit(owner, bullet),
+            };
+          }
+        }
+      }
       continue;
     }
 
@@ -508,17 +589,67 @@ function drawSpikes(ctx, worldTime) {
   }
 }
 
+function drawWeaponDrops(ctx, weaponDrops, worldTime) {
+  for (const drop of weaponDrops) {
+    const weapon = WEAPONS[drop.type];
+    const glow = 0.5 + 0.5 * Math.sin(worldTime * 4);
+
+    ctx.save();
+    ctx.translate(drop.x, drop.y);
+
+    // Glow circle
+    ctx.beginPath();
+    ctx.arc(0, 0, 18, 0, Math.PI * 2);
+    ctx.fillStyle = weapon.color;
+    ctx.globalAlpha = 0.2 + glow * 0.3;
+    ctx.fill();
+
+    // Inner circle
+    ctx.globalAlpha = 0.8;
+    ctx.beginPath();
+    ctx.arc(0, 0, 12, 0, Math.PI * 2);
+    ctx.fillStyle = weapon.color;
+    ctx.fill();
+
+    // Icon
+    ctx.globalAlpha = 1;
+    ctx.font = "16px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(weapon.icon, 0, 0);
+
+    ctx.restore();
+  }
+}
+
 function drawTriangle(ctx, player) {
   ctx.save();
   ctx.translate(player.x, player.y);
   ctx.rotate(player.angle);
 
+  const scale = player.bossScale;
+  ctx.scale(scale, scale);
+
   // Hit flash: white overlay
   const isFlashing = player.hitFlash > 0 && Math.floor(player.hitFlash * 10) % 2 === 0;
-  ctx.globalAlpha = player.shield > 0 ? 0.72 : (isFlashing ? 0.5 : 1);
+  const hasShield = player.shield > 0 || player.shieldTimer > 0;
+  ctx.globalAlpha = hasShield ? 0.72 : (isFlashing ? 0.5 : 1);
+
+  // Shield aura
+  if (player.shieldTimer > 0) {
+    ctx.beginPath();
+    ctx.arc(0, 0, 22, 0, Math.PI * 2);
+    ctx.strokeStyle = "#3498db";
+    ctx.lineWidth = 3;
+    ctx.shadowColor = "#3498db";
+    ctx.shadowBlur = 12;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
 
   // Draw gun barrel
-  ctx.fillStyle = isFlashing ? "#fff" : "#888";
+  const weapon = WEAPONS[player.weapon] || WEAPONS.pistol;
+  ctx.fillStyle = isFlashing ? "#fff" : weapon.color;
   ctx.fillRect(10, -3, 14, 6);
   // Gun tip highlight
   ctx.fillStyle = isFlashing ? "#fff" : "#aaa";
@@ -533,18 +664,33 @@ function drawTriangle(ctx, player) {
   ctx.lineTo(-12, -12);
   ctx.lineTo(-12, 12);
   ctx.closePath();
-  ctx.fillStyle = isFlashing ? "#fff" : PLAYER_CONFIG[player.id].color;
+  ctx.fillStyle = isFlashing ? "#fff" : (player.isBoss ? "#9b59b6" : PLAYER_CONFIG[player.id].color);
   ctx.fill();
+
+  // Boss crown
+  if (player.isBoss) {
+    ctx.fillStyle = "#f1c40f";
+    ctx.beginPath();
+    ctx.moveTo(-4, -14);
+    ctx.lineTo(-8, -20);
+    ctx.lineTo(-2, -17);
+    ctx.lineTo(2, -22);
+    ctx.lineTo(6, -17);
+    ctx.lineTo(10, -20);
+    ctx.lineTo(6, -14);
+    ctx.closePath();
+    ctx.fill();
+  }
 
   ctx.restore();
 
   // Draw health bar above player
   if (player.alive) {
-    const barWidth = 30;
-    const barHeight = 4;
+    const barWidth = 30 * scale;
+    const barHeight = 4 * scale;
     const barX = player.x - barWidth / 2;
-    const barY = player.y - WORLD.playerRadius - 10;
-    const healthRatio = player.health / WORLD.maxHealth;
+    const barY = player.y - WORLD.playerRadius * scale - 12 * scale;
+    const healthRatio = player.health / player.maxHealth;
 
     // Background
     ctx.fillStyle = "rgba(0,0,0,0.5)";
@@ -563,12 +709,61 @@ function drawTriangle(ctx, player) {
 }
 
 function drawBullets(ctx, bullets) {
-  ctx.fillStyle = "#fff4db";
   for (const bullet of bullets) {
+    const weapon = WEAPONS[bullet.weaponType] || WEAPONS.pistol;
+    if (bullet.explosive) {
+      ctx.fillStyle = "#e74c3c";
+      ctx.shadowColor = "#e74c3c";
+      ctx.shadowBlur = 8;
+    } else if (bullet.piercing) {
+      ctx.fillStyle = "#9b59b6";
+      ctx.shadowColor = "#9b59b6";
+      ctx.shadowBlur = 8;
+    } else {
+      ctx.fillStyle = "#fff4db";
+      ctx.shadowBlur = 0;
+    }
     ctx.beginPath();
-    ctx.arc(bullet.x, bullet.y, WORLD.bulletRadius, 0, Math.PI * 2);
+    ctx.arc(bullet.x, bullet.y, bullet.explosive ? 8 : WORLD.bulletRadius, 0, Math.PI * 2);
     ctx.fill();
+    ctx.shadowBlur = 0;
   }
+}
+
+function drawBossWarning(ctx, timer) {
+  if (timer <= 0) return;
+  const alpha = 0.5 + 0.5 * Math.sin(timer * 12);
+  ctx.save();
+  ctx.fillStyle = `rgba(155, 89, 182, ${alpha * 0.3})`;
+  ctx.fillRect(0, 0, WORLD.width, WORLD.height);
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `bold 56px "Trebuchet MS", sans-serif`;
+  ctx.fillStyle = `rgba(241, 196, 15, ${alpha})`;
+  ctx.shadowColor = "#f1c40f";
+  ctx.shadowBlur = 20;
+  ctx.fillText("👾 BOSS来了！👾", WORLD.width / 2, WORLD.height / 2);
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+function drawLevelTransition(ctx, level, timer) {
+  if (timer <= 0) return;
+  const alpha = Math.min(1, timer / 0.5);
+  ctx.save();
+  ctx.fillStyle = `rgba(0, 0, 0, ${alpha * 0.6})`;
+  ctx.fillRect(0, 0, WORLD.width, WORLD.height);
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `bold 48px "Trebuchet MS", sans-serif`;
+  ctx.fillStyle = `rgba(63, 191, 104, ${alpha})`;
+  ctx.shadowColor = "#3fbf68";
+  ctx.shadowBlur = 16;
+  ctx.fillText(`⭐ 第 ${level} 关 ⭐`, WORLD.width / 2, WORLD.height / 2);
+  ctx.shadowBlur = 0;
+  ctx.restore();
 }
 
 function createRuntime() {
@@ -577,6 +772,8 @@ function createRuntime() {
   const redHealthNode = document.querySelector("#redHealth");
   const greenScoreNode = document.querySelector("#greenScore");
   const redScoreNode = document.querySelector("#redScore");
+  const levelNode = document.querySelector("#levelDisplay");
+  const weaponNode = document.querySelector("#weaponDisplay");
   const statusNode = document.querySelector("#status");
   const startButton = document.querySelector("#startButton");
   const modeSelect = document.querySelector("#modeSelect");
@@ -588,6 +785,8 @@ function createRuntime() {
     !redHealthNode ||
     !greenScoreNode ||
     !redScoreNode ||
+    !levelNode ||
+    !weaponNode ||
     !statusNode ||
     !startButton ||
     !modeSelect ||
@@ -619,8 +818,12 @@ function createRuntime() {
     state.running = next.running;
     state.mode = modeSelect.value;
     state.winner = next.winner;
+    state.level = 1;
+    state.levelTransition = 0;
+    state.bossWarning = 0;
     state.players = next.players;
     state.bullets = next.bullets;
+    state.weaponDrops = [];
     state.keys = next.keys;
     state.worldTime = next.worldTime;
     state.spikeMoveTimer = next.spikeMoveTimer;
@@ -638,19 +841,43 @@ function createRuntime() {
     render();
   };
 
+  const startLevel = (level) => {
+    const isBoss = level % 3 === 0;
+    state.level = level;
+    state.levelTransition = 2;
+    state.bossWarning = isBoss ? 2.5 : 0;
+    state.bullets = [];
+    state.weaponDrops = [];
+
+    // Reset green player (always 3 HP)
+    state.players.green = createPlayer("green", level, false);
+    // Reset red player (AI, scales with level)
+    state.players.red = createPlayer("red", level, isBoss);
+
+    // Reset spike positions
+    for (const spike of SPIKES) {
+      spike.currentCol = spike.col;
+      spike.currentRow = spike.row;
+    }
+  };
+
   const restart = () => {
-    const next = createInitialState();
     state.running = true;
     state.mode = modeSelect.value;
     state.winner = null;
-    state.players = next.players;
-    state.bullets = next.bullets;
+    state.level = 1;
+    state.levelTransition = 2;
+    state.bossWarning = 0;
+    state.bullets = [];
+    state.weaponDrops = [];
+    state.players.green = createPlayer("green", 1, false);
+    state.players.red = createPlayer("red", 1, false);
     state.keys.clear();
     state.worldTime = 0;
     startButton.textContent = "重新开始";
     setStatus(
       state.mode === "single"
-        ? "单人模式开战。按F/空格开枪，点击屏幕瞄准射击！电脑会追着你打，尽量别被堵在墙角。"
+        ? "单人模式开战。按F/空格开枪，点击屏幕瞄准射击！"
         : "双人模式开战。躲开墙角，找角度开火。",
     );
     render();
@@ -696,7 +923,40 @@ function createRuntime() {
     ctx.font = `22px "Trebuchet MS", sans-serif`;
     ctx.fillStyle = "rgba(239,245,255,0.75)";
     ctx.shadowBlur = 0;
-    ctx.fillText("按「开始对战」再来一局", cx, cy + 52);
+
+    if (isGreen && state.mode === "single") {
+      ctx.fillText("进入下一关...", cx, cy + 52);
+    } else {
+      ctx.fillText("按「开始对战」再来一局", cx, cy + 52);
+    }
+
+    ctx.restore();
+  };
+
+  const drawGameOverScreen = () => {
+    const w = canvas.width;
+    const h = canvas.height;
+
+    ctx.save();
+    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+    ctx.fillRect(0, 0, w, h);
+
+    const cx = w / 2;
+    const cy = h / 2;
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#e74c3c";
+    ctx.font = `bold 56px "Trebuchet MS", sans-serif`;
+    ctx.shadowColor = "#e74c3c";
+    ctx.shadowBlur = 20;
+    ctx.fillText("游戏结束", cx, cy - 30);
+
+    ctx.font = `24px "Trebuchet MS", sans-serif`;
+    ctx.fillStyle = "rgba(239,245,255,0.8)";
+    ctx.shadowBlur = 0;
+    ctx.fillText(`你闯到了第 ${state.level} 关`, cx, cy + 20);
+    ctx.fillText("按「开始对战」重新开始", cx, cy + 60);
 
     ctx.restore();
   };
@@ -704,18 +964,34 @@ function createRuntime() {
   const render = () => {
     drawMaze(ctx);
     drawSpikes(ctx, state.worldTime);
+    drawWeaponDrops(ctx, state.weaponDrops, state.worldTime);
     drawBullets(ctx, state.bullets);
     drawTriangle(ctx, state.players.green);
     drawTriangle(ctx, state.players.red);
 
-    if (state.winner) {
+    if (state.bossWarning > 0) {
+      drawBossWarning(ctx, state.bossWarning);
+    }
+    if (state.levelTransition > 0) {
+      drawLevelTransition(ctx, state.level, state.levelTransition);
+    }
+
+    if (state.winner === "green" && state.mode === "single") {
+      // Level complete, will auto-advance
+    } else if (state.winner) {
       drawVictoryScreen(state.winner);
+    }
+
+    if (!state.players.green.alive && state.mode === "single") {
+      drawGameOverScreen();
     }
 
     greenHealthNode.textContent = `${state.players.green.health}`;
     redHealthNode.textContent = `${state.players.red.health}`;
-    greenScoreNode.textContent = `${WORLD.maxHealth - state.players.red.health}`;
-    redScoreNode.textContent = `${WORLD.maxHealth - state.players.green.health}`;
+    greenScoreNode.textContent = `${state.players.red.maxHealth - state.players.red.health}`;
+    redScoreNode.textContent = `${state.players.green.maxHealth - state.players.green.health}`;
+    levelNode.textContent = `${state.level}${state.players.red.isBoss ? " 👾BOSS" : ""}`;
+    weaponNode.textContent = WEAPONS[state.players.green.weapon].name;
   };
 
   const onKeyChange = (event, pressed) => {
@@ -735,13 +1011,11 @@ function createRuntime() {
     }
   };
 
-  const maybeFire = (player, fireKey, nextBullets) => {
-    if (!state.keys.has(fireKey) || player.cooldown > 0 || !player.alive) {
-      return nextBullets;
-    }
-
-    player.cooldown = WORLD.fireCooldown;
-    return nextBullets.concat(createBullet(player));
+  const fireWeapon = (player) => {
+    if (player.cooldown > 0 || !player.alive) return [];
+    const weapon = WEAPONS[player.weapon] || WEAPONS.pistol;
+    player.cooldown = weapon.cooldown;
+    return createBullet(player, player.weapon);
   };
 
   const tick = (timestamp) => {
@@ -751,6 +1025,14 @@ function createRuntime() {
 
     const dt = Math.min((timestamp - lastTime) / 1000, 0.032);
     lastTime = timestamp;
+
+    // Update level transition timer
+    if (state.levelTransition > 0) {
+      state.levelTransition -= dt;
+    }
+    if (state.bossWarning > 0) {
+      state.bossWarning -= dt;
+    }
 
     if (state.running) {
       const greenInput = dragging === 'green' ? { x: 0, y: 0 } : getInputVector(state.keys, PLAYER_CONFIG.green.keys);
@@ -768,6 +1050,8 @@ function createRuntime() {
             cooldown: Math.max(0, state.players.green.cooldown - dt),
             shield: Math.max(0, state.players.green.shield - dt),
             hitFlash: Math.max(0, state.players.green.hitFlash - dt),
+            weaponTimer: Math.max(0, state.players.green.weaponTimer - dt),
+            shieldTimer: Math.max(0, state.players.green.shieldTimer - dt),
           },
           greenInput,
           dt,
@@ -778,11 +1062,21 @@ function createRuntime() {
             cooldown: Math.max(0, state.players.red.cooldown - dt),
             shield: Math.max(0, state.players.red.shield - dt),
             hitFlash: Math.max(0, state.players.red.hitFlash - dt),
+            weaponTimer: Math.max(0, state.players.red.weaponTimer - dt),
+            shieldTimer: Math.max(0, state.players.red.shieldTimer - dt),
           },
           redInput,
           dt,
         ),
       };
+
+      // Weapon timer: revert to pistol when expired
+      if (state.players.green.weaponTimer <= 0 && state.players.green.weapon !== "pistol") {
+        state.players.green.weapon = "pistol";
+      }
+      if (state.players.red.weaponTimer <= 0 && state.players.red.weapon !== "pistol") {
+        state.players.red.weapon = "pistol";
+      }
 
       let nextBullets = stepBullets(state.bullets, dt);
 
@@ -793,8 +1087,7 @@ function createRuntime() {
 
         // Green fires with F or Space
         if ((state.keys.has(PLAYER_CONFIG.green.keys.fire) || state.keys.has(" ")) && green.cooldown <= 0 && green.alive) {
-          green.cooldown = WORLD.fireCooldown;
-          nextBullets = nextBullets.concat(createBullet(green));
+          nextBullets = nextBullets.concat(fireWeapon(green));
         }
 
         if (green.alive) {
@@ -802,12 +1095,16 @@ function createRuntime() {
         }
 
         if (shouldAiFire(red, green, redCanSeeGreen)) {
-          red.cooldown = WORLD.fireCooldown;
-          nextBullets = nextBullets.concat(createBullet(red));
+          nextBullets = nextBullets.concat(fireWeapon(red));
         }
       } else {
-        nextBullets = maybeFire(state.players.green, PLAYER_CONFIG.green.keys.fire, nextBullets);
-        nextBullets = maybeFire(state.players.red, PLAYER_CONFIG.red.keys.fire, nextBullets);
+        // Multiplayer
+        if (state.keys.has(PLAYER_CONFIG.green.keys.fire)) {
+          nextBullets = nextBullets.concat(fireWeapon(state.players.green));
+        }
+        if (state.keys.has(PLAYER_CONFIG.red.keys.fire)) {
+          nextBullets = nextBullets.concat(fireWeapon(state.players.red));
+        }
       }
 
       const resolved = resolveBulletHits(state.players, nextBullets);
@@ -815,6 +1112,44 @@ function createRuntime() {
       state.bullets = resolved.bullets;
 
       state.worldTime += dt;
+
+      // Weapon drops: spawn randomly
+      if (Math.random() < WEAPON_DROP_CHANCE && state.weaponDrops.length < 3) {
+        state.weaponDrops.push(createWeaponDrop());
+      }
+
+      // Update weapon drop timers and check pickup
+      state.weaponDrops = state.weaponDrops.filter((drop) => {
+        drop.timer -= dt;
+        drop.glow += dt;
+        if (drop.timer <= 0) return false;
+
+        // Check if green player picks up
+        const green = state.players.green;
+        if (green.alive && Math.hypot(drop.x - green.x, drop.y - green.y) < 24) {
+          if (drop.type === "shield") {
+            green.shieldTimer = SHIELD_DURATION;
+          } else {
+            green.weapon = drop.type;
+            green.weaponTimer = WEAPON_EFFECT_DURATION;
+          }
+          return false;
+        }
+
+        // Check if red player picks up (in single player, AI can also pick up)
+        const red = state.players.red;
+        if (red.alive && Math.hypot(drop.x - red.x, drop.y - red.y) < 24 * red.bossScale) {
+          if (drop.type === "shield") {
+            red.shieldTimer = SHIELD_DURATION;
+          } else {
+            red.weapon = drop.type;
+            red.weaponTimer = WEAPON_EFFECT_DURATION;
+          }
+          return false;
+        }
+
+        return true;
+      });
 
       // Randomly move spikes
       state.spikeMoveTimer += dt;
@@ -830,17 +1165,34 @@ function createRuntime() {
 
       state.players = checkSpikeHits(state.players, state.worldTime);
 
-      if (!state.players.green.alive || !state.players.red.alive) {
+      // Check win/lose conditions
+      if (!state.players.red.alive) {
+        // Red died - level complete (single player)
+        if (state.mode === "single") {
+          state.running = false;
+          state.winner = "green";
+          // Auto advance to next level after 2 seconds
+          setTimeout(() => {
+            if (state.winner === "green" && !state.players.green.alive === false) {
+              startLevel(state.level + 1);
+              state.running = true;
+              state.winner = null;
+            }
+          }, 2000);
+        } else {
+          state.running = false;
+          state.winner = "green";
+          setStatus("绿三角获胜。");
+        }
+      }
+
+      if (!state.players.green.alive) {
         state.running = false;
-        state.winner = state.players.green.alive ? "green" : "red";
+        state.winner = "red";
         setStatus(
-          state.winner === "green"
-            ? state.mode === "single"
-              ? "你赢了，绿三角击败了电脑。"
-              : "绿三角获胜。"
-            : state.mode === "single"
-              ? "电脑赢了，红三角拿下这一局。"
-              : "红三角获胜。",
+          state.mode === "single"
+            ? `游戏结束！你闯到了第 ${state.level} 关。`
+            : "红三角获胜。"
         );
       }
     }
@@ -906,8 +1258,7 @@ function createRuntime() {
       if (dist > WORLD.playerRadius + 15 && state.mode === 'single' && green.alive && green.cooldown <= 0) {
         // Aim toward tap position and fire
         green.angle = Math.atan2(pos.y - green.y, pos.x - green.x);
-        green.cooldown = WORLD.fireCooldown;
-        state.bullets = state.bullets.concat(createBullet(green));
+        state.bullets = state.bullets.concat(fireWeapon(green));
       }
     }
     onDragEnd();
@@ -920,8 +1271,7 @@ function createRuntime() {
       const green = state.players.green;
       if (state.mode === 'single' && green.alive && green.cooldown <= 0) {
         green.angle = Math.atan2(tapStartPos.y - green.y, tapStartPos.x - green.x);
-        green.cooldown = WORLD.fireCooldown;
-        state.bullets = state.bullets.concat(createBullet(green));
+        state.bullets = state.bullets.concat(fireWeapon(green));
       }
     }
     onDragEnd();

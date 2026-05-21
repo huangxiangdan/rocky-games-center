@@ -198,10 +198,14 @@
       <aside class="panel">
         <h1>红绿三角迷宫对战</h1>
         <p class="subtitle">
-          你可以选择单人模式对战电脑，或者双人模式本地同屏对战。两边都能发射子弹，每人 3 滴血。
+          单人模式闯关！打败红三角进入下一关，每3关出现大Boss。迷宫中会随机出现武器道具，捡起来增强火力！
         </p>
 
         <div class="stats">
+          <div class="stat">
+            <div class="stat-label">关卡</div>
+            <div class="stat-value" id="levelDisplay" style="color: var(--accent)">1</div>
+          </div>
           <div class="stat">
             <div class="stat-label green">绿三角血量</div>
             <div class="stat-value green" id="greenHealth">3</div>
@@ -209,6 +213,10 @@
           <div class="stat">
             <div class="stat-label red">红三角血量</div>
             <div class="stat-value red" id="redHealth">3</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label green">当前武器</div>
+            <div class="stat-value" id="weaponDisplay" style="color: var(--accent); font-size: 20px">🔫 手枪</div>
           </div>
           <div class="stat">
             <div class="stat-label green">绿三角命中</div>
@@ -232,9 +240,10 @@
 
         <section class="controls">
           <h2>操作</h2>
-          <p>绿三角：WASD 移动，F 开火，也可以直接拖动</p>
+          <p>绿三角：WASD 移动，F/空格 开火，也可以直接拖动</p>
           <p>红三角：方向键移动，/ 开火</p>
-          <p>单人模式下，红三角由电脑控制。尖刺会随机移动！</p>
+          <p>单人模式闯关：打败敌人进入下一关！每3关出Boss！</p>
+          <p>武器道具：🔫散弹枪 💣炸弹 ⚡激光 🛡️护盾</p>
         </section>
 
         <section class="status">
