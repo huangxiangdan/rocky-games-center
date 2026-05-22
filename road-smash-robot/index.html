@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>公路撞击机器人 🤖🏎️</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- HUD -->
+    <div id="hud">
+      <div class="hud-item" id="hud-p1">
+        <span class="hud-label">🚗 P1</span>
+        <div class="hp-bar"><div class="hp-fill" id="hp1"></div></div>
+        <span class="hud-stat" id="stat1">💰0 | 💥0 | 🚗</span>
+      </div>
+      <div class="hud-item" id="hud-p2">
+        <span class="hud-label">🚙 P2</span>
+        <div class="hp-bar"><div class="hp-fill" id="hp2"></div></div>
+        <span class="hud-stat" id="stat2">💰0 | 💥0 | 🚗</span>
+      </div>
+    </div>
+
+    <!-- Start Screen -->
+    <div id="start-screen" class="overlay">
+      <div class="overlay-box">
+        <h1>🤖 公路撞击机器人 🏎️</h1>
+        <p>在公路上飞驰，撞击敌车，收集金币！</p>
+        <p>毁掉 3 辆敌车 → 变身机器人！🤖</p>
+        <div class="controls-info">
+          <div><strong>P1 (蓝车)</strong>: WASD 移动</div>
+          <div><strong>P2 (红车)</strong>: 方向键移动</div>
+        </div>
+        <button id="start-btn" class="big-btn">开始游戏 🚀</button>
+        <div class="mode-toggle">
+          <button id="mode-1p" class="mode-btn active">单人模式</button>
+          <button id="mode-2p" class="mode-btn">双人模式</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="gameover-screen" class="overlay" style="display:none">
+      <div class="overlay-box">
+        <h1 id="gameover-title">游戏结束 😢</h1>
+        <p id="gameover-info"></p>
+        <button id="restart-btn" class="big-btn">再来一局 🔄</button>
+      </div>
+    </div>
+
+    <!-- Unlock Notification -->
+    <div id="unlock-notify" class="unlock-popup" style="display:none">
+      <span id="unlock-text"></span>
+    </div>
+
+    <!-- Touch Controls -->
+    <div id="touch-controls">
+      <div class="touch-pad" id="touch-pad1">
+        <button class="touch-btn" data-dir="up">⬆️</button>
+        <div class="touch-row">
+          <button class="touch-btn" data-dir="left">⬅️</button>
+          <button class="touch-btn" data-dir="down">⬇️</button>
+          <button class="touch-btn" data-dir="right">➡️</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
