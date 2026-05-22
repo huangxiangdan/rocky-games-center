@@ -1,5 +1,6 @@
 // ============================================
 // 🤖 公路撞击机器人 - Road Smash Robot 🏎️
+// v2.0 - Major Gameplay Improvements
 // ============================================
 
 (function () {
@@ -18,18 +19,27 @@
 
   // --- Constants ---
   const ROAD_LINE_SPEED = 3;
-  const ENEMY_SPAWN_INTERVAL = 90; // frames
-  const COIN_SPAWN_INTERVAL = 120;
+  const ENEMY_SPAWN_INITIAL = 40; // Initial spawn interval (frames)
+  const ENEMY_SPAWN_MIN = 20; // Fastest spawn interval
+  const COIN_SPAWN_INTERVAL = 60;
+  const ITEM_SPAWN_INTERVAL = 70;
   const MAX_HP = 100;
   const SMASHES_TO_TRANSFORM = 3;
   const COINS_TO_UNLOCK = 15;
-  const PLAYER_SPEED = 4.5;
-  const ROBOT_SPEED = 5.5;
-  const ENEMY_BASE_SPEED = 2;
-  const HIT_DAMAGE = 15;
-  const ROBOT_HIT_DAMAGE = 30;
-  const UNLOCKED_HIT_DAMAGE = 60;
-  const INVINCIBLE_FRAMES = 40;
+  const PLAYER_SPEED = 5.5;
+  const ROBOT_SPEED = 7;
+  const ENEMY_BASE_SPEED = 2.5;
+  const HIT_DAMAGE_CAR = 5; // Car form hits enemy
+  const HIT_DAMAGE_ROBOT = 2; // Robot form hits enemy
+  const HIT_DAMAGE_UNLOCKED = 1; // Unlocked form hits enemy
+  const SIDE_HIT_DAMAGE = 8; // Side collision damage
+  const INVINCIBLE_FRAMES = 30;
+  const COMBO_WINDOW = 120; // frames to maintain combo
+
+  // Item types
+  const ITEM_HEAL = "heal";
+  const ITEM_BOOST = "boost";
+  const ITEM_SHIELD = "shield";
 
   // --- Colors ---
   const COLORS = {
@@ -47,6 +57,9 @@
     coin: "#fbbf24",
     coinShine: "#fef3c7",
     star: ["#fbbf24", "#f97316", "#ef4444", "#ec4899", "#8b5cf6"],
+    healItem: "#f87171",
+    boostItem: "#60a5fa",
+    shieldItem: "#34d399",
   };
 
   // --- Game State ---
@@ -56,9 +69,14 @@
   let players = [];
   let enemies = [];
   let coins = [];
+  let items = [];
   let particles = [];
+  let floatingTexts = [];
+  let screenFlashes = [];
   let roadOffset = 0;
   let unlockedCars = { p1: false, p2: false };
+  let currentEnemySpawnInterval = ENEMY_SPAWN_INITIAL;
+  let gameTimeSeconds = 0;
 
   // --- Input ---
   const keys = {};
@@ -66,7 +84,6 @@
 
   document.addEventListener("keydown", (e) => {
     keys[e.key] = true;
-    // Prevent scrolling with arrow keys
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) {
       e.preventDefault();
     }
@@ -135,6 +152,14 @@
       unlockedColor,
       invincible: 0,
       alive: true,
+      // Combo system
+      comboCount: 0,
+      comboTimer: 0,
+      // Item effects
+      boostTimer: 0,
+      shieldTimer: 0,
+      // Trail particles timer
+      trailTimer: 0,
     };
   }
 
@@ -144,10 +169,15 @@
     gameoverScreen.style.display = "none";
     gameRunning = true;
     frameCount = 0;
+    gameTimeSeconds = 0;
     enemies = [];
     coins = [];
+    items = [];
     particles = [];
+    floatingTexts = [];
+    screenFlashes = [];
     unlockedCars = { p1: false, p2: false };
+    currentEnemySpawnInterval = ENEMY_SPAWN_INITIAL;
 
     const roadW = getRoadWidth();
     const roadX = getRoadX();
@@ -170,39 +200,130 @@
   }
 
   function getLaneX(lane) {
-    // 3 lanes
     const roadW = getRoadWidth();
     const roadX = getRoadX();
     const laneW = roadW / 3;
     return roadX + laneW * lane + laneW / 2;
   }
 
+  // --- Difficulty Scaling ---
+  function getDifficultyMultiplier() {
+    // First 10 seconds (600 frames at 60fps) are easy, then ramps up
+    const t = Math.max(0, gameTimeSeconds - 10);
+    return 1 + t * 0.03; // +3% per second after first 10s
+  }
+
+  function getEnemySpawnInterval() {
+    const t = Math.max(0, gameTimeSeconds - 10);
+    // Gradually decrease from ENEMY_SPAWN_INITIAL to ENEMY_SPAWN_MIN
+    const interval = ENEMY_SPAWN_INITIAL - t * 0.15;
+    return Math.max(ENEMY_SPAWN_MIN, Math.floor(interval));
+  }
+
+  function getEnemySpeed() {
+    const base = ENEMY_BASE_SPEED + Math.random() * 1.5;
+    return base * getDifficultyMultiplier();
+  }
+
   // --- Spawn Enemies ---
   function spawnEnemy() {
-    const lane = Math.floor(Math.random() * 3);
-    const colorIdx = Math.floor(Math.random() * COLORS.enemy.length);
-    const speed = ENEMY_BASE_SPEED + Math.random() * 1.5 + frameCount * 0.0005;
-    enemies.push({
-      x: getLaneX(lane),
-      y: -60,
-      w: 36,
-      h: 54,
-      speed,
-      color: COLORS.enemy[colorIdx],
-      lane,
-      hp: 1,
-    });
+    // Spawn 1-3 enemies at once
+    const count = Math.random() < 0.3 ? (Math.random() < 0.3 ? 3 : 2) : 1;
+    const usedLanes = [];
+    for (let i = 0; i < count; i++) {
+      let lane;
+      let attempts = 0;
+      do {
+        lane = Math.floor(Math.random() * 3);
+        attempts++;
+      } while (usedLanes.includes(lane) && attempts < 5);
+
+      if (!usedLanes.includes(lane)) {
+        usedLanes.push(lane);
+        const colorIdx = Math.floor(Math.random() * COLORS.enemy.length);
+        const speed = getEnemySpeed();
+        enemies.push({
+          x: getLaneX(lane),
+          y: -60 - i * 30,
+          w: 36,
+          h: 54,
+          speed,
+          color: COLORS.enemy[colorIdx],
+          lane,
+          hp: 1,
+          wasHitByPlayer: null, // Track which player hit it
+        });
+      }
+    }
   }
 
   // --- Spawn Coins ---
   function spawnCoin() {
+    // Sometimes spawn 2-3 coins
+    const count = Math.random() < 0.35 ? (Math.random() < 0.3 ? 3 : 2) : 1;
+    for (let i = 0; i < count; i++) {
+      const lane = Math.floor(Math.random() * 3);
+      coins.push({
+        x: getLaneX(lane),
+        y: -30 - i * 35,
+        r: 12,
+        speed: ENEMY_BASE_SPEED + 0.5,
+        angle: 0,
+      });
+    }
+  }
+
+  // --- Spawn Items ---
+  function spawnItem() {
     const lane = Math.floor(Math.random() * 3);
-    coins.push({
+    const rand = Math.random();
+    let type, color, emoji;
+    if (rand < 0.4) {
+      type = ITEM_HEAL;
+      color = COLORS.healItem;
+      emoji = "❤️";
+    } else if (rand < 0.7) {
+      type = ITEM_BOOST;
+      color = COLORS.boostItem;
+      emoji = "⚡";
+    } else {
+      type = ITEM_SHIELD;
+      color = COLORS.shieldItem;
+      emoji = "🛡️";
+    }
+    items.push({
       x: getLaneX(lane),
       y: -30,
-      r: 12,
-      speed: ENEMY_BASE_SPEED + 0.5,
+      r: 16,
+      speed: ENEMY_BASE_SPEED + 0.3,
+      type,
+      color,
+      emoji,
       angle: 0,
+      pulseTimer: 0,
+    });
+  }
+
+  // --- Floating Text ---
+  function addFloatingText(x, y, text, color, size) {
+    floatingTexts.push({
+      x,
+      y,
+      text,
+      color: color || "#fff",
+      size: size || 18,
+      life: 60,
+      maxLife: 60,
+      vy: -2,
+    });
+  }
+
+  // --- Screen Flash ---
+  function addScreenFlash(color) {
+    screenFlashes.push({
+      color,
+      life: 15,
+      maxLife: 15,
     });
   }
 
@@ -261,6 +382,38 @@
     }
   }
 
+  function spawnTrailParticle(x, y, color) {
+    particles.push({
+      x: x + (Math.random() - 0.5) * 10,
+      y: y,
+      vx: (Math.random() - 0.5) * 0.5,
+      vy: 1 + Math.random() * 2,
+      life: 10 + Math.random() * 10,
+      maxLife: 20,
+      size: 3 + Math.random() * 4,
+      color: color,
+      type: "trail",
+    });
+  }
+
+  function spawnItemParticles(x, y, color) {
+    for (let i = 0; i < 10; i++) {
+      const angle = (Math.PI * 2 * i) / 10;
+      const speed = 2 + Math.random() * 3;
+      particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 25 + Math.random() * 15,
+        maxLife: 40,
+        size: 4 + Math.random() * 4,
+        color: color,
+        type: "item",
+      });
+    }
+  }
+
   // --- Collision ---
   function rectsOverlap(a, b) {
     return (
@@ -279,11 +432,83 @@
     return dx * dx + dy * dy < cr * cr;
   }
 
+  // Determine if collision is from side (passive) or head-on (active smash)
+  function isSideCollision(player, enemy) {
+    // If player is moving primarily sideways relative to enemy, it's a side hit
+    const yOverlap = Math.min(player.y + player.h / 2, enemy.y + enemy.h / 2) -
+                     Math.max(player.y - player.h / 2, enemy.y - enemy.h / 2);
+    const xOverlap = Math.min(player.x + player.w / 2, enemy.x + enemy.w / 2) -
+                     Math.max(player.x - player.w / 2, enemy.x - enemy.w / 2);
+    // If x overlap is small relative to y overlap, it's a side hit
+    return xOverlap < yOverlap * 0.6;
+  }
+
+  // --- Combo System ---
+  function handleCombo(player) {
+    player.comboCount++;
+    player.comboTimer = COMBO_WINDOW;
+
+    if (player.comboCount >= 3) {
+      const comboBonus = player.comboCount;
+      player.coins += comboBonus;
+      addFloatingText(
+        player.x,
+        player.y - 40,
+        `COMBO x${player.comboCount}! +${comboBonus}💰`,
+        "#fbbf24",
+        22
+      );
+      // Show text animation
+      const texts = ["NICE!", "AWESOME!", "COMBO!", "WOW!"];
+      const randomText = texts[Math.floor(Math.random() * texts.length)];
+      addFloatingText(player.x, player.y - 65, randomText, "#f97316", 16);
+    }
+  }
+
+  // --- Text Animations (replacing sound effects) ---
+  function showHitText(x, y, isSmash) {
+    const texts = isSmash
+      ? ["BOOM!", "SMASH!", "BAM!", "POW!", "CRASH!"]
+      : ["OUCH!", "HEY!", "NO!"];
+    const text = texts[Math.floor(Math.random() * texts.length)];
+    const color = isSmash ? "#f59e0b" : "#f87171";
+    addFloatingText(x, y - 20, text, color, isSmash ? 20 : 14);
+  }
+
+  function showItemText(x, y, type) {
+    let text, color;
+    switch (type) {
+      case ITEM_HEAL:
+        text = "+30 HP!";
+        color = "#f87171";
+        break;
+      case ITEM_BOOST:
+        text = "⚡ SPEED!";
+        color = "#60a5fa";
+        break;
+      case ITEM_SHIELD:
+        text = "🛡️ SHIELD!";
+        color = "#34d399";
+        break;
+      default:
+        text = "NICE!";
+        color = "#fbbf24";
+    }
+    addFloatingText(x, y - 20, text, color, 18);
+  }
+
   // --- Update Player ---
   function updatePlayer(p, up, down, left, right) {
     if (!p.alive) return;
 
-    const speed = p.isRobot ? ROBOT_SPEED : PLAYER_SPEED;
+    let speed = p.isRobot ? ROBOT_SPEED : PLAYER_SPEED;
+
+    // Boost effect
+    if (p.boostTimer > 0) {
+      speed *= 1.8;
+      p.boostTimer--;
+    }
+
     let dx = 0,
       dy = 0;
 
@@ -309,6 +534,32 @@
 
     // Invincibility countdown
     if (p.invincible > 0) p.invincible--;
+
+    // Shield countdown
+    if (p.shieldTimer > 0) p.shieldTimer--;
+
+    // Combo timer countdown
+    if (p.comboTimer > 0) {
+      p.comboTimer--;
+      if (p.comboTimer <= 0) {
+        p.comboCount = 0;
+      }
+    }
+
+    // Trail effect - spawn trail particles behind player
+    p.trailTimer++;
+    if (p.trailTimer % 3 === 0) {
+      const trailColor = p.boostTimer > 0 ? "#60a5fa" :
+                         p.isUnlocked ? "#c084fc" :
+                         p.isRobot ? "#818cf8" :
+                         "#6366f1";
+      spawnTrailParticle(p.x, p.y + p.h / 2, trailColor);
+      if (p.boostTimer > 0) {
+        // Extra trail particles during boost
+        spawnTrailParticle(p.x - 8, p.y + p.h / 2, "#fbbf24");
+        spawnTrailParticle(p.x + 8, p.y + p.h / 2, "#fbbf24");
+      }
+    }
   }
 
   // --- Draw Star Shape ---
@@ -328,19 +579,45 @@
   }
 
   // --- Draw Car ---
-  function drawCar(x, y, w, h, color, isRobot, isUnlocked, invincible) {
+  function drawCar(x, y, w, h, color, isRobot, isUnlocked, invincible, shieldTimer, boostTimer) {
     ctx.save();
     ctx.translate(x, y);
+
+    // Shield aura
+    if (shieldTimer > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.2 + Math.sin(frameCount * 0.15) * 0.1;
+      ctx.fillStyle = COLORS.shieldItem;
+      ctx.beginPath();
+      ctx.arc(0, 0, w * 0.9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = COLORS.shieldItem;
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.6;
+      ctx.stroke();
+      ctx.restore();
+    }
 
     // Flash when invincible
     if (invincible > 0 && Math.floor(invincible / 4) % 2 === 0) {
       ctx.globalAlpha = 0.4;
     }
 
+    // Boost glow
+    if (boostTimer > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.15 + Math.sin(frameCount * 0.3) * 0.05;
+      ctx.fillStyle = COLORS.boostItem;
+      ctx.beginPath();
+      ctx.arc(0, 0, w * 0.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
     if (isRobot) {
       // Robot form
       const bodyColor = isUnlocked ? color : color;
-      
+
       // Body (boxier, robot-like)
       ctx.fillStyle = bodyColor;
       ctx.beginPath();
@@ -508,6 +785,75 @@
     ctx.restore();
   }
 
+  // --- Draw Item ---
+  function drawItem(item) {
+    ctx.save();
+    ctx.translate(item.x, item.y);
+
+    item.pulseTimer++;
+
+    // Pulsing glow
+    const pulse = Math.sin(item.pulseTimer * 0.1) * 0.3 + 0.7;
+    ctx.globalAlpha = pulse;
+    ctx.shadowColor = item.color;
+    ctx.shadowBlur = 15;
+
+    // Background circle
+    ctx.fillStyle = item.color;
+    ctx.beginPath();
+    ctx.arc(0, 0, item.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Inner circle
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = "rgba(255,255,255,0.3)";
+    ctx.beginPath();
+    ctx.arc(0, 0, item.r * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Emoji
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+    ctx.font = "18px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(item.emoji, 0, 1);
+
+    ctx.restore();
+  }
+
+  // --- Draw Floating Texts ---
+  function drawFloatingTexts() {
+    floatingTexts.forEach((ft) => {
+      const alpha = ft.life / ft.maxLife;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = ft.color;
+      ctx.font = `bold ${ft.size}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      // Shadow for readability
+      ctx.shadowColor = "rgba(0,0,0,0.5)";
+      ctx.shadowBlur = 4;
+
+      ctx.fillText(ft.text, ft.x, ft.y);
+      ctx.restore();
+    });
+  }
+
+  // --- Draw Screen Flashes ---
+  function drawScreenFlashes() {
+    screenFlashes.forEach((flash) => {
+      const alpha = (flash.life / flash.maxLife) * 0.3;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = flash.color;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.restore();
+    });
+  }
+
   // --- Color Helpers ---
   function lightenColor(hex, amount) {
     const r = Math.min(255, parseInt(hex.slice(1, 3), 16) + amount);
@@ -573,9 +919,9 @@
 
       if (p.type === "star") {
         drawStar(p.x, p.y, 5, p.size, p.size * 0.4);
-      } else if (p.type === "transform") {
+      } else if (p.type === "trail") {
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
         ctx.fill();
       } else {
         ctx.beginPath();
@@ -600,7 +946,12 @@
       hp1El.style.width = pct + "%";
       hp1El.className = "hp-fill" + (pct < 30 ? " danger" : pct < 60 ? " warning" : "");
       const form = p.isUnlocked ? "🌟" : p.isRobot ? "🤖" : "🚗";
-      stat1El.textContent = `💰${p.coins} | 💥${p.smashes} | ${form}`;
+      const effects = [];
+      if (p.shieldTimer > 0) effects.push("🛡️");
+      if (p.boostTimer > 0) effects.push("⚡");
+      const comboText = p.comboCount >= 3 ? ` | 🔥x${p.comboCount}` : "";
+      const effectText = effects.length > 0 ? ` | ${effects.join("")}` : "";
+      stat1El.textContent = `💰${p.coins} | 💥${p.smashes} | ${form}${comboText}${effectText}`;
     }
 
     if (twoPlayerMode) {
@@ -611,7 +962,12 @@
         hp2El.style.width = pct + "%";
         hp2El.className = "hp-fill" + (pct < 30 ? " danger" : pct < 60 ? " warning" : "");
         const form = p.isUnlocked ? "🌟" : p.isRobot ? "🤖" : "🚗";
-        stat2El.textContent = `💰${p.coins} | 💥${p.smashes} | ${form}`;
+        const effects = [];
+        if (p.shieldTimer > 0) effects.push("🛡️");
+        if (p.boostTimer > 0) effects.push("⚡");
+        const comboText = p.comboCount >= 3 ? ` | 🔥x${p.comboCount}` : "";
+        const effectText = effects.length > 0 ? ` | ${effects.join("")}` : "";
+        stat2El.textContent = `💰${p.coins} | 💥${p.smashes} | ${form}${comboText}${effectText}`;
       }
     } else {
       hudP2.style.display = "none";
@@ -623,7 +979,6 @@
     unlockText.textContent = text;
     unlockNotify.style.display = "block";
     unlockNotify.style.animation = "none";
-    // Force reflow
     void unlockNotify.offsetWidth;
     unlockNotify.style.animation = "popIn 0.4s ease-out";
     setTimeout(() => {
@@ -671,16 +1026,20 @@
     if (!gameRunning) return;
 
     frameCount++;
+    gameTimeSeconds = frameCount / 60;
     roadOffset += ROAD_LINE_SPEED;
 
-    // Spawn
-    if (frameCount % ENEMY_SPAWN_INTERVAL === 0) spawnEnemy();
+    // Update spawn interval based on difficulty
+    currentEnemySpawnInterval = getEnemySpawnInterval();
+
+    // Spawn enemies
+    if (frameCount % currentEnemySpawnInterval === 0) spawnEnemy();
+
+    // Spawn coins (60 frame interval, sometimes multiple)
     if (frameCount % COIN_SPAWN_INTERVAL === 0) spawnCoin();
 
-    // Increase difficulty
-    if (frameCount % 600 === 0 && ENEMY_SPAWN_INTERVAL > 40) {
-      // Gradually spawn faster (handled by checking frameCount mod)
-    }
+    // Spawn items
+    if (frameCount % ITEM_SPAWN_INTERVAL === 0 && Math.random() < 0.6) spawnItem();
 
     // Update players
     updatePlayer(players[0], "w", "s", "a", "d");
@@ -688,7 +1047,8 @@
     if (!twoPlayerMode) {
       const p = players[0];
       if (!p.alive) return;
-      const speed = p.isRobot ? ROBOT_SPEED : PLAYER_SPEED;
+      let speed = p.isRobot ? ROBOT_SPEED : PLAYER_SPEED;
+      if (p.boostTimer > 0) speed *= 1.8;
       if (keys["ArrowUp"] || touchDirs.up) p.y -= speed;
       if (keys["ArrowDown"] || touchDirs.down) p.y += speed;
       if (keys["ArrowLeft"] || touchDirs.left) p.x -= speed;
@@ -715,6 +1075,12 @@
       c.angle += 0.05;
     });
 
+    // Update items
+    items.forEach((item) => {
+      item.y += item.speed;
+      item.angle += 0.03;
+    });
+
     // Update particles
     particles.forEach((p) => {
       p.x += p.vx;
@@ -724,10 +1090,24 @@
       p.vy *= 0.96;
     });
 
+    // Update floating texts
+    floatingTexts.forEach((ft) => {
+      ft.y += ft.vy;
+      ft.life--;
+    });
+
+    // Update screen flashes
+    screenFlashes.forEach((flash) => {
+      flash.life--;
+    });
+
     // Clean up off-screen
     enemies = enemies.filter((e) => e.y < canvas.height + 80);
     coins = coins.filter((c) => c.y < canvas.height + 40);
+    items = items.filter((item) => item.y < canvas.height + 40);
     particles = particles.filter((p) => p.life > 0);
+    floatingTexts = floatingTexts.filter((ft) => ft.life > 0);
+    screenFlashes = screenFlashes.filter((flash) => flash.life > 0);
 
     // Collision: player vs enemy
     players.forEach((p) => {
@@ -735,6 +1115,16 @@
       enemies.forEach((e, idx) => {
         if (e.hp <= 0) return;
         if (rectsOverlap(p, e)) {
+          // If shield active, destroy enemy without taking damage
+          if (p.shieldTimer > 0) {
+            e.hp = 0;
+            p.smashes++;
+            spawnStarParticles(e.x, e.y, 8);
+            showHitText(e.x, e.y, true);
+            handleCombo(p);
+            return;
+          }
+
           if (p.invincible > 0) return;
 
           // Player smashes enemy
@@ -742,10 +1132,38 @@
           p.smashes++;
           spawnStarParticles(e.x, e.y, 10);
 
+          // Determine damage based on collision type
+          let dmg;
+          const isSide = isSideCollision(p, e);
+          if (isSide) {
+            dmg = SIDE_HIT_DAMAGE;
+          } else if (p.isUnlocked) {
+            dmg = HIT_DAMAGE_UNLOCKED;
+          } else if (p.isRobot) {
+            dmg = HIT_DAMAGE_ROBOT;
+          } else {
+            dmg = HIT_DAMAGE_CAR;
+          }
+
+          p.hp -= dmg;
+          p.invincible = INVINCIBLE_FRAMES;
+
+          // Show damage text
+          if (!isSide) {
+            showHitText(e.x, e.y, true);
+            handleCombo(p);
+          } else {
+            showHitText(p.x, p.y, false);
+          }
+
+          // Show damage number
+          addFloatingText(p.x, p.y - 30, `-${dmg}`, "#f87171", 14);
+
           // Check transform
           if (p.smashes >= SMASHES_TO_TRANSFORM && !p.isRobot) {
             p.isRobot = true;
             spawnTransformParticles(p.x, p.y);
+            addScreenFlash("#818cf8");
             showUnlock(`🤖 P${p.id === "p1" ? "1" : "2"} 变身机器人！攻击力增强！`);
           }
 
@@ -754,18 +1172,15 @@
             p.isUnlocked = true;
             p.color = p.unlockedColor;
             spawnTransformParticles(p.x, p.y);
+            addScreenFlash("#fbbf24");
             showUnlock(`🌟 P${p.id === "p1" ? "1" : "2"} 解锁新车！攻击力翻倍！`);
           }
-
-          // Player takes damage from collision
-          const dmg = p.isUnlocked ? 5 : p.isRobot ? 8 : HIT_DAMAGE;
-          p.hp -= dmg;
-          p.invincible = INVINCIBLE_FRAMES;
 
           if (p.hp <= 0) {
             p.hp = 0;
             p.alive = false;
             spawnStarParticles(p.x, p.y, 20);
+            addScreenFlash("#ef4444");
           }
         }
       });
@@ -781,15 +1196,47 @@
         if (circleRectOverlap(c.x, c.y, c.r, p.x, p.y, p.w, p.h)) {
           p.coins++;
           spawnCoinParticles(c.x, c.y);
+          // Floating +1 coin text
+          addFloatingText(c.x, c.y - 10, "+1💰", COLORS.coin, 16);
 
           // Check unlock
           if (p.coins >= COINS_TO_UNLOCK && !p.isUnlocked) {
             p.isUnlocked = true;
             p.color = p.unlockedColor;
             spawnTransformParticles(p.x, p.y);
+            addScreenFlash("#fbbf24");
             showUnlock(`🌟 P${p.id === "p1" ? "1" : "2"} 解锁新车！攻击力翻倍！`);
           }
 
+          return false;
+        }
+        return true;
+      });
+    });
+
+    // Collision: player vs item
+    players.forEach((p) => {
+      if (!p.alive) return;
+      items = items.filter((item) => {
+        if (circleRectOverlap(item.x, item.y, item.r, p.x, p.y, p.w, p.h)) {
+          // Apply item effect
+          switch (item.type) {
+            case ITEM_HEAL:
+              p.hp = Math.min(MAX_HP, p.hp + 30);
+              addFloatingText(item.x, item.y - 15, "+30 HP", COLORS.healItem, 18);
+              break;
+            case ITEM_BOOST:
+              p.boostTimer = 180; // 3 seconds at 60fps
+              addFloatingText(item.x, item.y - 15, "⚡ SPEED!", COLORS.boostItem, 18);
+              break;
+            case ITEM_SHIELD:
+              p.shieldTimer = 180; // 3 seconds at 60fps
+              addFloatingText(item.x, item.y - 15, "🛡️ SHIELD!", COLORS.shieldItem, 18);
+              break;
+          }
+
+          spawnItemParticles(item.x, item.y, item.color);
+          showItemText(item.x, item.y, item.type);
           return false;
         }
         return true;
@@ -815,6 +1262,9 @@
     // Draw coins
     coins.forEach(drawCoin);
 
+    // Draw items
+    items.forEach(drawItem);
+
     // Draw enemies
     enemies.forEach(drawEnemyCar);
 
@@ -822,11 +1272,17 @@
     players.forEach((p) => {
       if (!p.alive) return;
       const color = p.isUnlocked ? p.unlockedColor : p.isRobot ? p.robotColor : p.color;
-      drawCar(p.x, p.y, p.w, p.h, color, p.isRobot, p.isUnlocked, p.invincible);
+      drawCar(p.x, p.y, p.w, p.h, color, p.isRobot, p.isUnlocked, p.invincible, p.shieldTimer, p.boostTimer);
     });
 
     // Draw particles
     drawParticles();
+
+    // Draw floating texts
+    drawFloatingTexts();
+
+    // Draw screen flashes
+    drawScreenFlashes();
 
     // Update HUD
     updateHUD();

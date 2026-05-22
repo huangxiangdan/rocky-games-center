@@ -179,6 +179,16 @@ body {
   color: #fff;
 }
 
+.items-info {
+  margin: 8px 0 0;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  font-size: 13px;
+  color: #c0c8e0;
+  line-height: 1.8;
+}
+
 /* Unlock popup */
 .unlock-popup {
   position: absolute;
