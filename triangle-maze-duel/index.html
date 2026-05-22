@@ -198,7 +198,7 @@
       <aside class="panel">
         <h1>红绿三角迷宫对战</h1>
         <p class="subtitle">
-          单人模式闯关！打败红三角进入下一关，每3关出现大Boss。迷宫中会随机出现武器道具，捡起来增强火力！
+          单人模式闯关！打败红三角进入下一关，每3关出现大Boss。迷宫中会随机出现武器和道具，捡起来增强实力！
         </p>
 
         <div class="stats">
@@ -208,15 +208,29 @@
           </div>
           <div class="stat">
             <div class="stat-label green">绿三角血量</div>
-            <div class="stat-value green" id="greenHealth">3</div>
+            <div class="stat-value green" id="greenHealth">5</div>
+            <div style="margin-top: 6px">
+              <div style="background: rgba(255,255,255,0.15); border-radius: 8px; height: 10px; overflow: hidden">
+                <div id="greenHealthBar" style="background: var(--green); border-radius: 8px; height: 10px; width: 100%; transition: width 0.3s"></div>
+              </div>
+            </div>
           </div>
           <div class="stat">
             <div class="stat-label red">红三角血量</div>
             <div class="stat-value red" id="redHealth">3</div>
+            <div style="margin-top: 6px">
+              <div style="background: rgba(255,255,255,0.15); border-radius: 8px; height: 10px; overflow: hidden">
+                <div id="redHealthBar" style="background: var(--red); border-radius: 8px; height: 10px; width: 100%; transition: width 0.3s"></div>
+              </div>
+            </div>
           </div>
           <div class="stat">
             <div class="stat-label green">当前武器</div>
             <div class="stat-value" id="weaponDisplay" style="color: var(--accent); font-size: 20px">🔫 手枪</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label green">当前道具效果</div>
+            <div class="stat-value" id="activeEffects" style="color: #3498db; font-size: 16px">无</div>
           </div>
           <div class="stat">
             <div class="stat-label green">绿三角命中</div>
@@ -244,6 +258,7 @@
           <p>红三角：方向键移动，/ 开火</p>
           <p>单人模式闯关：打败敌人进入下一关！每3关出Boss！</p>
           <p>武器道具：🔫散弹枪 💣炸弹 ⚡激光 🛡️护盾</p>
+          <p>道具：❤️血量药水（回血）⚡速度提升（加速）🛡️护盾（无敌）</p>
         </section>
 
         <section class="status">

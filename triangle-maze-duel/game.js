@@ -23,9 +23,20 @@ export const WORLD = {
   bulletRadius: 6,
   bulletSpeed: 460,
   fireCooldown: 0.34,
-  maxHealth: 3,
+  maxHealth: 5,
   respawnShield: 0.8,
 };
+
+// Item definitions (non-weapon pickups)
+export const ITEMS = {
+  healthPotion: { name: "血量药水❤️", icon: "❤️", color: "#e74c3c", healAmount: 2 },
+  speedBoost:  { name: "速度提升⚡", icon: "⚡", color: "#3498db", speedMultiplier: 1.8 },
+  shieldItem:  { name: "护盾🛡️",  icon: "🛡️", color: "#f1c40f" },
+};
+
+export const ITEM_DROP_CHANCE = 0.008; // per frame chance to spawn an item
+export const ITEM_DROP_DURATION = 10; // seconds before item disappears
+export const SPEED_BOOST_DURATION = 5; // seconds for speed boost
 
 // Weapon definitions
 export const WEAPONS = {
@@ -122,6 +133,7 @@ export function createPlayer(id, level = 1, isBoss = false) {
     weapon: "pistol",
     weaponTimer: 0,
     shieldTimer: 0,
+    speedTimer: 0, // speed boost remaining time
     isBoss,
     bossScale: isBoss ? 2 : 1,
   };
@@ -141,6 +153,20 @@ export function createWeaponDrop() {
   };
 }
 
+export function createItemDrop() {
+  const openCells = getOpenCells();
+  const cell = openCells[Math.floor(Math.random() * openCells.length)];
+  const types = ["healthPotion", "speedBoost", "shieldItem"];
+  const type = types[Math.floor(Math.random() * types.length)];
+  return {
+    type,
+    x: (cell.col + 0.5) * WORLD.cellSize,
+    y: (cell.row + 0.5) * WORLD.cellSize,
+    timer: ITEM_DROP_DURATION,
+    glow: 0,
+  };
+}
+
 export function createInitialState() {
   return {
     running: false,
@@ -155,6 +181,7 @@ export function createInitialState() {
     },
     bullets: [],
     weaponDrops: [],
+    itemDrops: [],
     keys: new Set(),
     worldTime: 0,
     spikeMoveTimer: 0,
@@ -334,7 +361,8 @@ export function shouldAiFire(ai, target, canSeeTarget) {
 }
 
 export function movePlayer(player, vector, dt, maze = MAZE_ROWS) {
-  const speed = player.isBoss ? WORLD.playerSpeed * 1.3 : WORLD.playerSpeed;
+  const speedBoost = player.speedTimer > 0 ? ITEMS.speedBoost.speedMultiplier : 1;
+  const speed = (player.isBoss ? WORLD.playerSpeed * 1.3 : WORLD.playerSpeed) * speedBoost;
   let next = { ...player };
   const stepX = clamp(
     player.x + vector.x * speed * dt,
@@ -622,6 +650,46 @@ function drawWeaponDrops(ctx, weaponDrops, worldTime) {
   }
 }
 
+function drawItemDrops(ctx, itemDrops, worldTime) {
+  for (const drop of itemDrops) {
+    const item = ITEMS[drop.type];
+    const glow = 0.5 + 0.5 * Math.sin(worldTime * 5);
+
+    ctx.save();
+    ctx.translate(drop.x, drop.y);
+
+    // Outer glow
+    ctx.beginPath();
+    ctx.arc(0, 0, 20, 0, Math.PI * 2);
+    ctx.fillStyle = item.color;
+    ctx.globalAlpha = 0.15 + glow * 0.25;
+    ctx.fill();
+
+    // Inner circle
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath();
+    ctx.arc(0, 0, 14, 0, Math.PI * 2);
+    ctx.fillStyle = item.color;
+    ctx.fill();
+
+    // White highlight
+    ctx.globalAlpha = 0.3 + glow * 0.2;
+    ctx.beginPath();
+    ctx.arc(-3, -3, 6, 0, Math.PI * 2);
+    ctx.fillStyle = "#fff";
+    ctx.fill();
+
+    // Icon
+    ctx.globalAlpha = 1;
+    ctx.font = "18px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(item.icon, 0, 1);
+
+    ctx.restore();
+  }
+}
+
 function drawTriangle(ctx, player) {
   ctx.save();
   ctx.translate(player.x, player.y);
@@ -644,6 +712,20 @@ function drawTriangle(ctx, player) {
     ctx.shadowColor = "#3498db";
     ctx.shadowBlur = 12;
     ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  // Speed boost aura
+  if (player.speedTimer > 0) {
+    ctx.beginPath();
+    ctx.arc(0, 0, 20, 0, Math.PI * 2);
+    ctx.strokeStyle = "#3498db";
+    ctx.lineWidth = 2;
+    ctx.shadowColor = "#3498db";
+    ctx.shadowBlur = 10;
+    ctx.setLineDash([4, 4]);
+    ctx.stroke();
+    ctx.setLineDash([]);
     ctx.shadowBlur = 0;
   }
 
@@ -824,6 +906,7 @@ function createRuntime() {
     state.players = next.players;
     state.bullets = next.bullets;
     state.weaponDrops = [];
+    state.itemDrops = [];
     state.keys = next.keys;
     state.worldTime = next.worldTime;
     state.spikeMoveTimer = next.spikeMoveTimer;
@@ -848,8 +931,9 @@ function createRuntime() {
     state.bossWarning = isBoss ? 2.5 : 0;
     state.bullets = [];
     state.weaponDrops = [];
+    state.itemDrops = [];
 
-    // Reset green player (always 3 HP)
+    // Reset green player (always maxHealth HP)
     state.players.green = createPlayer("green", level, false);
     // Reset red player (AI, scales with level)
     state.players.red = createPlayer("red", level, isBoss);
@@ -870,6 +954,7 @@ function createRuntime() {
     state.bossWarning = 0;
     state.bullets = [];
     state.weaponDrops = [];
+    state.itemDrops = [];
     state.players.green = createPlayer("green", 1, false);
     state.players.red = createPlayer("red", 1, false);
     state.keys.clear();
@@ -965,6 +1050,7 @@ function createRuntime() {
     drawMaze(ctx);
     drawSpikes(ctx, state.worldTime);
     drawWeaponDrops(ctx, state.weaponDrops, state.worldTime);
+    drawItemDrops(ctx, state.itemDrops, state.worldTime);
     drawBullets(ctx, state.bullets);
     drawTriangle(ctx, state.players.green);
     drawTriangle(ctx, state.players.red);
@@ -988,10 +1074,41 @@ function createRuntime() {
 
     greenHealthNode.textContent = `${state.players.green.health}`;
     redHealthNode.textContent = `${state.players.red.health}`;
+
+    // Update health bars
+    const greenBar = document.querySelector("#greenHealthBar");
+    const redBar = document.querySelector("#redHealthBar");
+    if (greenBar) {
+      const greenRatio = state.players.green.health / state.players.green.maxHealth;
+      greenBar.style.width = `${greenRatio * 100}%`;
+      greenBar.style.background = greenRatio > 0.5 ? "var(--green)" : greenRatio > 0.25 ? "#f1c40f" : "var(--red)";
+    }
+    if (redBar) {
+      const redRatio = state.players.red.health / state.players.red.maxHealth;
+      redBar.style.width = `${redRatio * 100}%`;
+      redBar.style.background = redRatio > 0.5 ? "var(--red)" : "#f1c40f";
+    }
     greenScoreNode.textContent = `${state.players.red.maxHealth - state.players.red.health}`;
     redScoreNode.textContent = `${state.players.green.maxHealth - state.players.green.health}`;
     levelNode.textContent = `${state.level}${state.players.red.isBoss ? " 👾BOSS" : ""}`;
     weaponNode.textContent = WEAPONS[state.players.green.weapon].name;
+
+    // Update active effects display
+    const effectsEl = document.querySelector("#activeEffects");
+    if (effectsEl) {
+      const green = state.players.green;
+      const effects = [];
+      if (green.shieldTimer > 0) {
+        effects.push(`🛡️护盾 ${Math.ceil(green.shieldTimer)}s`);
+      }
+      if (green.speedTimer > 0) {
+        effects.push(`⚡加速 ${Math.ceil(green.speedTimer)}s`);
+      }
+      if (green.weapon !== "pistol" && green.weaponTimer > 0) {
+        effects.push(`${WEAPONS[green.weapon].icon}${Math.ceil(green.weaponTimer)}s`);
+      }
+      effectsEl.textContent = effects.length > 0 ? effects.join("  ") : "无";
+    }
   };
 
   const onKeyChange = (event, pressed) => {
@@ -1052,6 +1169,7 @@ function createRuntime() {
             hitFlash: Math.max(0, state.players.green.hitFlash - dt),
             weaponTimer: Math.max(0, state.players.green.weaponTimer - dt),
             shieldTimer: Math.max(0, state.players.green.shieldTimer - dt),
+            speedTimer: Math.max(0, state.players.green.speedTimer - dt),
           },
           greenInput,
           dt,
@@ -1064,6 +1182,7 @@ function createRuntime() {
             hitFlash: Math.max(0, state.players.red.hitFlash - dt),
             weaponTimer: Math.max(0, state.players.red.weaponTimer - dt),
             shieldTimer: Math.max(0, state.players.red.shieldTimer - dt),
+            speedTimer: Math.max(0, state.players.red.speedTimer - dt),
           },
           redInput,
           dt,
@@ -1118,6 +1237,11 @@ function createRuntime() {
         state.weaponDrops.push(createWeaponDrop());
       }
 
+      // Item drops: spawn randomly
+      if (Math.random() < ITEM_DROP_CHANCE && state.itemDrops.length < 3) {
+        state.itemDrops.push(createItemDrop());
+      }
+
       // Update weapon drop timers and check pickup
       state.weaponDrops = state.weaponDrops.filter((drop) => {
         drop.timer -= dt;
@@ -1144,6 +1268,43 @@ function createRuntime() {
           } else {
             red.weapon = drop.type;
             red.weaponTimer = WEAPON_EFFECT_DURATION;
+          }
+          return false;
+        }
+
+        return true;
+      });
+
+      // Update item drop timers and check pickup
+      state.itemDrops = state.itemDrops.filter((drop) => {
+        drop.timer -= dt;
+        drop.glow += dt;
+        if (drop.timer <= 0) return false;
+
+        // Check if green player picks up
+        const green = state.players.green;
+        if (green.alive && Math.hypot(drop.x - green.x, drop.y - green.y) < 24) {
+          if (drop.type === "healthPotion") {
+            const item = ITEMS.healthPotion;
+            green.health = Math.min(green.maxHealth, green.health + item.healAmount);
+          } else if (drop.type === "speedBoost") {
+            green.speedTimer = SPEED_BOOST_DURATION;
+          } else if (drop.type === "shieldItem") {
+            green.shieldTimer = SHIELD_DURATION;
+          }
+          return false;
+        }
+
+        // Check if red player picks up
+        const red = state.players.red;
+        if (red.alive && Math.hypot(drop.x - red.x, drop.y - red.y) < 24 * red.bossScale) {
+          if (drop.type === "healthPotion") {
+            const item = ITEMS.healthPotion;
+            red.health = Math.min(red.maxHealth, red.health + item.healAmount);
+          } else if (drop.type === "speedBoost") {
+            red.speedTimer = SPEED_BOOST_DURATION;
+          } else if (drop.type === "shieldItem") {
+            red.shieldTimer = SHIELD_DURATION;
           }
           return false;
         }
