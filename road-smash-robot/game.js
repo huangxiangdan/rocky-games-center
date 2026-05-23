@@ -126,6 +126,8 @@
   // --- Input ---
   const keys = {};
   const touchDirs = { up: false, down: false, left: false, right: false };
+  // Joystick analog values (-1 to 1)
+  const joystickInput = { x: 0, y: 0, active: false };
 
   document.addEventListener("keydown", (e) => {
     keys[e.key] = true;
@@ -137,7 +139,103 @@
     keys[e.key] = false;
   });
 
-  // Touch controls
+  // --- Virtual Joystick ---
+  const joystickZone = document.getElementById("joystick-zone");
+  const joystickBase = document.getElementById("joystick-base");
+  const joystickStick = document.getElementById("joystick-stick");
+
+  const JOYSTICK_MAX_DIST = 35; // max pixel displacement from center
+  const JOYSTICK_DEADZONE = 0.12; // deadzone to prevent drift
+  let joystickTouchId = null;
+  let joystickCenterX = 0;
+  let joystickCenterY = 0;
+
+  function getJoystickCenter() {
+    const rect = joystickBase.getBoundingClientRect();
+    return {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    };
+  }
+
+  function updateJoystickVisual(dx, dy) {
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const clampedDist = Math.min(dist, JOYSTICK_MAX_DIST);
+    const angle = Math.atan2(dy, dx);
+    const cx = Math.cos(angle) * clampedDist;
+    const cy = Math.sin(angle) * clampedDist;
+    joystickStick.style.transform = `translate(calc(-50% + ${cx}px), calc(-50% + ${cy}px))`;
+  }
+
+  function resetJoystick() {
+    joystickInput.x = 0;
+    joystickInput.y = 0;
+    joystickInput.active = false;
+    joystickTouchId = null;
+    joystickStick.style.transform = "translate(-50%, -50%)";
+    joystickStick.classList.remove("active");
+  }
+
+  function handleJoystickStart(e) {
+    e.preventDefault();
+    if (joystickTouchId !== null) return; // already tracking a touch
+    const touch = e.changedTouches[0];
+    joystickTouchId = touch.identifier;
+    const center = getJoystickCenter();
+    joystickCenterX = center.x;
+    joystickCenterY = center.y;
+    joystickStick.classList.add("active");
+    handleJoystickMove(e);
+  }
+
+  function handleJoystickMove(e) {
+    e.preventDefault();
+    let touch = null;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === joystickTouchId) {
+        touch = e.changedTouches[i];
+        break;
+      }
+    }
+    if (!touch) return;
+
+    const dx = touch.clientX - joystickCenterX;
+    const dy = touch.clientY - joystickCenterY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist > JOYSTICK_MAX_DIST) {
+      // Normalize to max distance
+      joystickInput.x = (dx / dist);
+      joystickInput.y = (dy / dist);
+    } else if (dist > JOYSTICK_MAX_DIST * JOYSTICK_DEADZONE) {
+      joystickInput.x = dx / JOYSTICK_MAX_DIST;
+      joystickInput.y = dy / JOYSTICK_MAX_DIST;
+    } else {
+      joystickInput.x = 0;
+      joystickInput.y = 0;
+    }
+    joystickInput.active = true;
+    updateJoystickVisual(dx, dy);
+  }
+
+  function handleJoystickEnd(e) {
+    e.preventDefault();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === joystickTouchId) {
+        resetJoystick();
+        return;
+      }
+    }
+  }
+
+  if (joystickZone) {
+    joystickZone.addEventListener("touchstart", handleJoystickStart, { passive: false });
+    joystickZone.addEventListener("touchmove", handleJoystickMove, { passive: false });
+    joystickZone.addEventListener("touchend", handleJoystickEnd, { passive: false });
+    joystickZone.addEventListener("touchcancel", handleJoystickEnd, { passive: false });
+  }
+
+  // --- D-Pad Touch Controls ---
   const touchBtns = document.querySelectorAll(".touch-btn");
   touchBtns.forEach((btn) => {
     const dir = btn.dataset.dir;
@@ -313,6 +411,7 @@
   function showLevelComplete() {
     gameRunning = false;
     levelTransitioning = false;
+    resetJoystick(); // Reset joystick on level complete
 
     const level = LEVELS[currentLevelIndex];
 
@@ -935,25 +1034,40 @@
     let dx = 0,
       dy = 0;
 
-    if (keys[up] || touchDirs.up) dy -= speed;
-    if (keys[down] || touchDirs.down) dy += speed;
-    if (keys[left] || touchDirs.left) dx -= speed;
-    if (keys[right] || touchDirs.right) dx += speed;
+    // Keyboard input
+    if (keys[up]) dy -= speed;
+    if (keys[down]) dy += speed;
+    if (keys[left]) dx -= speed;
+    if (keys[right]) dx += speed;
 
-    // Normalize diagonal
-    if (dx !== 0 && dy !== 0) {
-      dx *= 0.707;
-      dy *= 0.707;
+    // D-Pad touch input
+    if (touchDirs.up) dy -= speed;
+    if (touchDirs.down) dy += speed;
+    if (touchDirs.left) dx -= speed;
+    if (touchDirs.right) dx += speed;
+
+    // Joystick analog input (proportional movement)
+    if (joystickInput.active) {
+      dx += joystickInput.x * speed;
+      dy += joystickInput.y * speed;
+    }
+
+    // Normalize diagonal (only if magnitude > speed)
+    const mag = Math.sqrt(dx * dx + dy * dy);
+    if (mag > speed) {
+      dx = (dx / mag) * speed;
+      dy = (dy / mag) * speed;
     }
 
     p.x += dx;
     p.y += dy;
 
-    // Clamp to road
+    // Clamp to road (leave more room at bottom for touch controls)
+    const bottomMargin = joystickInput.active || touchDirs.up || touchDirs.down || touchDirs.left || touchDirs.right ? 170 : 10;
     const roadX = getRoadX();
     const roadW = getRoadWidth();
     p.x = Math.max(roadX + p.w / 2 + 4, Math.min(roadX + roadW - p.w / 2 - 4, p.x));
-    p.y = Math.max(p.h / 2 + 50, Math.min(canvas.height - p.h / 2 - 10, p.y));
+    p.y = Math.max(p.h / 2 + 50, Math.min(canvas.height - p.h / 2 - bottomMargin, p.y));
 
     // Invincibility countdown
     if (p.invincible > 0) p.invincible--;
@@ -1413,6 +1527,7 @@
   function gameOver() {
     gameRunning = false;
     levelTransitioning = false;
+    resetJoystick(); // Reset joystick on game over
     const title = document.getElementById("gameover-title");
     const info = document.getElementById("gameover-info");
 
@@ -1477,15 +1592,35 @@
       if (!p.alive) return;
       let speed = p.isRobot ? ROBOT_SPEED : PLAYER_SPEED;
       if (p.boostTimer > 0) speed *= 1.8;
-      if (keys["ArrowUp"] || touchDirs.up) p.y -= speed;
-      if (keys["ArrowDown"] || touchDirs.down) p.y += speed;
-      if (keys["ArrowLeft"] || touchDirs.left) p.x -= speed;
-      if (keys["ArrowRight"] || touchDirs.right) p.x += speed;
-      // Re-clamp
+
+      let extraDx = 0, extraDy = 0;
+      if (keys["ArrowUp"] || touchDirs.up) extraDy -= speed;
+      if (keys["ArrowDown"] || touchDirs.down) extraDy += speed;
+      if (keys["ArrowLeft"] || touchDirs.left) extraDx -= speed;
+      if (keys["ArrowRight"] || touchDirs.right) extraDx += speed;
+
+      // Joystick input for single player
+      if (joystickInput.active) {
+        extraDx += joystickInput.x * speed;
+        extraDy += joystickInput.y * speed;
+      }
+
+      // Normalize extra movement
+      const extraMag = Math.sqrt(extraDx * extraDx + extraDy * extraDy);
+      if (extraMag > speed) {
+        extraDx = (extraDx / extraMag) * speed;
+        extraDy = (extraDy / extraMag) * speed;
+      }
+
+      p.x += extraDx;
+      p.y += extraDy;
+
+      // Re-clamp with touch controls margin
+      const bottomMargin2 = joystickInput.active || touchDirs.up || touchDirs.down || touchDirs.left || touchDirs.right ? 170 : 10;
       const roadX = getRoadX();
       const roadW = getRoadWidth();
       p.x = Math.max(roadX + p.w / 2 + 4, Math.min(roadX + roadW - p.w / 2 - 4, p.x));
-      p.y = Math.max(p.h / 2 + 50, Math.min(canvas.height - p.h / 2 - 10, p.y));
+      p.y = Math.max(p.h / 2 + 50, Math.min(canvas.height - p.h / 2 - bottomMargin2, p.y));
     }
 
     if (twoPlayerMode && players[1]) {

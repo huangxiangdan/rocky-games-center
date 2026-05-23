@@ -247,45 +247,107 @@ body {
 /* Touch Controls */
 #touch-controls {
   position: absolute;
-  bottom: 20px;
+  bottom: 30px;
   left: 0;
   right: 0;
   display: none;
   justify-content: center;
+  align-items: flex-end;
   z-index: 20;
   pointer-events: none;
 }
 
-.touch-pad {
+/* Virtual Joystick */
+#joystick-zone {
+  position: relative;
+  pointer-events: auto;
+  width: 140px;
+  height: 140px;
   display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#joystick-base {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, rgba(99, 102, 241, 0.08) 60%, rgba(99, 102, 241, 0.03) 100%);
+  border: 2px solid rgba(99, 102, 241, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.15), inset 0 0 20px rgba(99, 102, 241, 0.05);
+}
+
+#joystick-stick {
+  position: absolute;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, rgba(139, 92, 246, 0.7), rgba(99, 102, 241, 0.5));
+  border: 2px solid rgba(167, 139, 250, 0.6);
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.4), inset 0 2px 4px rgba(255, 255, 255, 0.2);
+  transition: box-shadow 0.15s;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+#joystick-stick.active {
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.6), inset 0 2px 4px rgba(255, 255, 255, 0.3);
+  border-color: rgba(167, 139, 250, 0.8);
+}
+
+/* Direction indicators on joystick base - using a wrapper approach */
+.joystick-dir {
+  position: absolute;
+  color: rgba(167, 139, 250, 0.25);
+  font-size: 11px;
+  pointer-events: none;
+  line-height: 1;
+}
+.joystick-dir.dir-up { top: 7px; left: 50%; transform: translateX(-50%); }
+.joystick-dir.dir-down { bottom: 7px; left: 50%; transform: translateX(-50%); }
+.joystick-dir.dir-left { left: 7px; top: 50%; transform: translateY(-50%); }
+.joystick-dir.dir-right { right: 7px; top: 50%; transform: translateY(-50%); }
+
+/* D-Pad */
+.touch-pad {
+  display: none; /* Hidden by default, joystick preferred */
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   pointer-events: auto;
 }
 
 .touch-row {
   display: flex;
-  gap: 4px;
+  gap: 6px;
 }
 
 .touch-btn {
-  width: 56px;
-  height: 56px;
+  width: 64px;
+  height: 64px;
   border: none;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.18);
-  color: #fff;
-  font-size: 22px;
+  border-radius: 16px;
+  background: rgba(99, 102, 241, 0.2);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 20px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: background 0.1s, transform 0.1s;
 }
 
 .touch-btn:active {
-  background: rgba(255, 255, 255, 0.35);
+  background: rgba(99, 102, 241, 0.45);
+  transform: scale(0.92);
 }
 
 /* Show touch controls on touch devices */
@@ -293,8 +355,28 @@ body {
   #touch-controls {
     display: flex !important;
   }
+  /* On wider phones, show joystick; on narrow phones, show d-pad */
+  #joystick-zone {
+    display: flex;
+  }
 }
 
+/* Small phones: switch to D-Pad (more compact) */
+@media (max-width: 360px) {
+  #joystick-zone {
+    display: none !important;
+  }
+  .touch-pad {
+    display: flex !important;
+  }
+  .touch-btn {
+    width: 56px;
+    height: 56px;
+    font-size: 18px;
+  }
+}
+
+/* General mobile responsive */
 @media (max-width: 480px) {
   .hud-item {
     min-width: 120px;

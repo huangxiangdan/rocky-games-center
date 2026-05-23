@@ -33,6 +33,7 @@
         <div class="controls-info">
           <div><strong>P1 (蓝车)</strong>: WASD 移动</div>
           <div><strong>P2 (红车)</strong>: 方向键移动</div>
+          <div><strong>触屏</strong>: 虚拟摇杆 / 方向键</div>
         </div>
         <div class="items-info">
           <div>❤️ 回血 &nbsp; ⚡ 加速 &nbsp; 🛡️ 护盾</div>
@@ -81,12 +82,23 @@
 
     <!-- Touch Controls -->
     <div id="touch-controls">
+      <!-- Virtual Joystick -->
+      <div id="joystick-zone">
+        <div id="joystick-base">
+          <span class="joystick-dir dir-up">▲</span>
+          <span class="joystick-dir dir-down">▼</span>
+          <span class="joystick-dir dir-left">◀</span>
+          <span class="joystick-dir dir-right">▶</span>
+          <div id="joystick-stick"></div>
+        </div>
+      </div>
+      <!-- D-Pad fallback (shown on small screens) -->
       <div class="touch-pad" id="touch-pad1">
-        <button class="touch-btn" data-dir="up">⬆️</button>
+        <button class="touch-btn" data-dir="up">▲</button>
         <div class="touch-row">
-          <button class="touch-btn" data-dir="left">⬅️</button>
-          <button class="touch-btn" data-dir="down">⬇️</button>
-          <button class="touch-btn" data-dir="right">➡️</button>
+          <button class="touch-btn" data-dir="left">◀</button>
+          <button class="touch-btn" data-dir="down">▼</button>
+          <button class="touch-btn" data-dir="right">▶</button>
         </div>
       </div>
     </div>
