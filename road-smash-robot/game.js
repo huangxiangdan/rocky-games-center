@@ -46,6 +46,17 @@
   ];
   const LAST_LEVEL_INDEX = LEVELS.length - 1;
 
+  // Boss constants
+  const BOSS_HP = 10;
+  const BOSS_W = 60;
+  const BOSS_H = 90;
+  const BOSS_SPEED = 1.2;
+  const BOSS_SHOOT_INTERVAL = 90; // frames between shots
+  const BOSS_PROJECTILE_SPEED = 4;
+  const BOSS_PROJECTILE_DAMAGE = 8;
+  const BOSS_SPAWN_SCORE = 50; // score threshold to spawn boss in final level
+  const BOSS_WARNING_DURATION = 120; // frames of warning before boss appears
+
   // Item types
   const ITEM_HEAL = "heal";
   const ITEM_BOOST = "boost";
@@ -70,6 +81,13 @@
     healItem: "#f87171",
     boostItem: "#60a5fa",
     shieldItem: "#34d399",
+    bossBody: "#dc2626",
+    bossHorn: "#fbbf24",
+    bossEye: "#fef3c7",
+    bossProjectile: "#f97316",
+    bossHpBar: "#dc2626",
+    bossHpBg: "rgba(0,0,0,0.7)",
+    bossGlow: "#ef4444",
   };
 
   // --- Game State ---
@@ -96,6 +114,14 @@
   // Per-level coin/smash counters (reset each level)
   let levelCoins = 0;
   let levelSmashes = 0;
+
+  // Boss state
+  let boss = null; // active boss object
+  let bossProjectiles = []; // boss's fired projectiles
+  let bossSpawned = false; // whether boss has appeared this level
+  let bossDefeated = false; // whether boss was defeated
+  let bossWarningTimer = 0; // countdown before boss appears
+  let bossVictoryTimer = 0; // celebration after boss defeated
 
   // --- Input ---
   const keys = {};
@@ -218,6 +244,12 @@
     levelTransitioning = false;
     levelTransitionTimer = 0;
     gameCompleted = false;
+    boss = null;
+    bossProjectiles = [];
+    bossSpawned = false;
+    bossDefeated = false;
+    bossWarningTimer = 0;
+    bossVictoryTimer = 0;
 
     const roadW = getRoadWidth();
     const roadX = getRoadX();
@@ -248,6 +280,12 @@
     floatingTexts = [];
     screenFlashes = [];
     currentEnemySpawnInterval = ENEMY_SPAWN_INITIAL;
+    boss = null;
+    bossProjectiles = [];
+    bossSpawned = false;
+    bossDefeated = false;
+    bossWarningTimer = 0;
+    bossVictoryTimer = 0;
     unlockedCars = { p1: false, p2: false };
 
     // Heal players partially for next level
@@ -283,10 +321,11 @@
       gameCompleted = true;
       if (gameCompleteScreen) {
         let info = "";
+        const bossText = bossDefeated ? "💀 BOSS已击败！" : "";
         if (twoPlayerMode) {
-          info = `本关 - P1: 💰${players[0].coins} 💥${players[0].smashes} | P2: 💰${players[1].coins} 💥${players[1].smashes} | 本关得分: ${levelScore}`;
+          info = `本关 - P1: 💰${players[0].coins} 💥${players[0].smashes} | P2: 💰${players[1].coins} 💥${players[1].smashes} | 本关得分: ${levelScore} ${bossText}`;
         } else {
-          info = `本关 - 收集金币: ${levelCoins} | 撞毁敌车: ${levelSmashes} | 本关得分: ${levelScore}`;
+          info = `本关 - 收集金币: ${levelCoins} | 撞毁敌车: ${levelSmashes} | 本关得分: ${levelScore} ${bossText}`;
         }
         if (gameCompleteInfo) gameCompleteInfo.textContent = info;
         gameCompleteScreen.style.display = "flex";
@@ -432,6 +471,258 @@
       emoji,
       angle: 0,
       pulseTimer: 0,
+    });
+  }
+
+  // --- Spawn Boss ---
+  function spawnBoss() {
+    const roadW = getRoadWidth();
+    const roadX = getRoadX();
+    boss = {
+      x: roadX + roadW / 2,
+      y: -BOSS_H,
+      w: BOSS_W,
+      h: BOSS_H,
+      hp: BOSS_HP,
+      maxHp: BOSS_HP,
+      speed: BOSS_SPEED,
+      shootTimer: BOSS_SHOOT_INTERVAL,
+      phaseTimer: 0, // for movement patterns
+      entering: true, // boss is entering the screen
+      shakeTimer: 0,
+      deathTimer: 0,
+    };
+    bossSpawned = true;
+    addScreenFlash("#dc2626");
+    addFloatingText(canvas.width / 2, canvas.height / 2 - 60, "⚠️ BOSS来袭！⚠️", "#dc2626", 36);
+  }
+
+  // --- Draw Boss ---
+  function drawBoss(b) {
+    ctx.save();
+    ctx.translate(b.x, b.y);
+
+    // Screen shake offset
+    let shakeX = 0, shakeY = 0;
+    if (b.shakeTimer > 0) {
+      shakeX = (Math.random() - 0.5) * 4;
+      shakeY = (Math.random() - 0.5) * 4;
+      ctx.translate(shakeX, shakeY);
+      b.shakeTimer--;
+    }
+
+    // Pulsing glow
+    const glowPulse = Math.sin(frameCount * 0.08) * 0.3 + 0.7;
+    ctx.save();
+    ctx.globalAlpha = glowPulse * 0.2;
+    ctx.fillStyle = COLORS.bossGlow;
+    ctx.beginPath();
+    ctx.arc(0, 0, b.w * 1.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Main body (tank-like shape)
+    ctx.fillStyle = COLORS.bossBody;
+    ctx.beginPath();
+    ctx.roundRect(-b.w / 2, -b.h / 2, b.w, b.h, 8);
+    ctx.fill();
+
+    // Armor plating (darker strips)
+    ctx.fillStyle = "#991b1b";
+    ctx.fillRect(-b.w / 2 + 4, -b.h / 2 + 20, b.w - 8, 6);
+    ctx.fillRect(-b.w / 2 + 4, -b.h / 2 + 35, b.w - 8, 6);
+    ctx.fillRect(-b.w / 2 + 4, b.h / 2 - 20, b.w - 8, 6);
+
+    // Horns
+    ctx.fillStyle = COLORS.bossHorn;
+    ctx.beginPath();
+    ctx.moveTo(-b.w / 2 + 6, -b.h / 2 + 2);
+    ctx.lineTo(-b.w / 2 - 8, -b.h / 2 - 16);
+    ctx.lineTo(-b.w / 2 + 16, -b.h / 2 + 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(b.w / 2 - 6, -b.h / 2 + 2);
+    ctx.lineTo(b.w / 2 + 8, -b.h / 2 - 16);
+    ctx.lineTo(b.w / 2 - 16, -b.h / 2 + 2);
+    ctx.fill();
+
+    // Angry eyes (glowing)
+    ctx.fillStyle = COLORS.bossEye;
+    ctx.shadowColor = "#fbbf24";
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(-12, -b.h / 2 + 12, 7, 0, Math.PI * 2);
+    ctx.arc(12, -b.h / 2 + 12, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Angry pupils
+    ctx.fillStyle = "#dc2626";
+    ctx.beginPath();
+    ctx.arc(-12, -b.h / 2 + 12, 3.5, 0, Math.PI * 2);
+    ctx.arc(12, -b.h / 2 + 12, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Angry eyebrows
+    ctx.strokeStyle = "#fbbf24";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-18, -b.h / 2 + 5);
+    ctx.lineTo(-6, -b.h / 2 + 9);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(18, -b.h / 2 + 5);
+    ctx.lineTo(6, -b.h / 2 + 9);
+    ctx.stroke();
+
+    // Mouth (angry grille)
+    ctx.fillStyle = "#450a0a";
+    ctx.beginPath();
+    ctx.roundRect(-12, b.h / 2 - 18, 24, 8, 2);
+    ctx.fill();
+    // Teeth
+    ctx.fillStyle = "#fbbf24";
+    for (let i = 0; i < 4; i++) {
+      ctx.fillRect(-10 + i * 6, b.h / 2 - 18, 3, 4);
+    }
+
+    // Flame exhaust (bottom)
+    const flameFlicker = Math.random() * 4;
+    ctx.fillStyle = "#f97316";
+    ctx.globalAlpha = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(-b.w / 2 + 8, b.h / 2);
+    ctx.lineTo(-b.w / 2 + 14, b.h / 2 + 12 + flameFlicker);
+    ctx.lineTo(-b.w / 2 + 20, b.h / 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(b.w / 2 - 8, b.h / 2);
+    ctx.lineTo(b.w / 2 - 14, b.h / 2 + 12 + flameFlicker);
+    ctx.lineTo(b.w / 2 - 20, b.h / 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Gold trim on edges
+    ctx.strokeStyle = COLORS.bossHorn;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(-b.w / 2, -b.h / 2, b.w, b.h, 8);
+    ctx.stroke();
+
+    // Skull emblem on center
+    ctx.fillStyle = "#fbbf24";
+    ctx.font = "bold 18px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("💀", 0, 5);
+
+    ctx.restore();
+  }
+
+  // --- Draw Boss Health Bar ---
+  function drawBossHpBar(b) {
+    const barW = b.w + 40;
+    const barH = 10;
+    const barX = b.x - barW / 2;
+    const barY = b.y - b.h / 2 - 22;
+    const pct = Math.max(0, b.hp / b.maxHp);
+
+    // Background
+    ctx.fillStyle = COLORS.bossHpBg;
+    ctx.beginPath();
+    ctx.roundRect(barX - 1, barY - 1, barW + 2, barH + 2, 6);
+    ctx.fill();
+
+    // Track
+    ctx.fillStyle = "rgba(255,255,255,0.15)";
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, barW, barH, 5);
+    ctx.fill();
+
+    // Fill
+    const gradient = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+    gradient.addColorStop(0, "#dc2626");
+    gradient.addColorStop(1, "#f97316");
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, barW * pct, barH, 5);
+    ctx.fill();
+
+    // Boss name
+    ctx.fillStyle = "#fbbf24";
+    ctx.font = "bold 12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillText("👾 BOSS 💀", b.x, barY - 3);
+
+    // HP text
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 9px sans-serif";
+    ctx.textBaseline = "middle";
+    ctx.fillText(`${b.hp}/${b.maxHp}`, b.x, barY + barH / 2);
+  }
+
+  // --- Draw Boss Projectile ---
+  function drawBossProjectile(proj) {
+    ctx.save();
+    ctx.translate(proj.x, proj.y);
+
+    // Glow
+    ctx.shadowColor = COLORS.bossProjectile;
+    ctx.shadowBlur = 8;
+
+    // Fireball
+    ctx.fillStyle = COLORS.bossProjectile;
+    ctx.beginPath();
+    ctx.arc(0, 0, proj.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Inner core
+    ctx.fillStyle = "#fbbf24";
+    ctx.beginPath();
+    ctx.arc(0, 0, proj.r * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+
+    // Trail particles
+    if (frameCount % 2 === 0) {
+      particles.push({
+        x: proj.x + (Math.random() - 0.5) * 6,
+        y: proj.y - proj.r,
+        vx: (Math.random() - 0.5) * 1,
+        vy: -0.5 + Math.random() * 0.5,
+        life: 10 + Math.random() * 8,
+        maxLife: 18,
+        size: 3 + Math.random() * 3,
+        color: Math.random() > 0.5 ? "#f97316" : "#fbbf24",
+        type: "trail",
+      });
+    }
+
+    ctx.restore();
+  }
+
+  // --- Spawn Boss Projectiles ---
+  function spawnBossProjectiles(b) {
+    if (!b || b.entering || b.deathTimer > 0) return;
+
+    // Fire toward each alive player
+    players.forEach(p => {
+      if (!p.alive) return;
+      const dx = p.x - b.x;
+      const dy = p.y - b.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 1) return;
+      const vx = (dx / dist) * BOSS_PROJECTILE_SPEED;
+      const vy = (dy / dist) * BOSS_PROJECTILE_SPEED;
+      bossProjectiles.push({
+        x: b.x,
+        y: b.y + b.h / 2,
+        r: 8,
+        vx: vx,
+        vy: vy,
+      });
     });
   }
 
@@ -1167,8 +1458,10 @@
     // Update spawn interval based on difficulty
     currentEnemySpawnInterval = getEnemySpawnInterval();
 
-    // Spawn enemies
-    if (frameCount % currentEnemySpawnInterval === 0) spawnEnemy();
+    // Spawn enemies (reduce when boss is present)
+    const bossActive = boss !== null && !boss.entering && boss.deathTimer === 0;
+    const spawnSkipChance = bossActive ? 0.5 : 0; // 50% chance to skip when boss active
+    if (frameCount % currentEnemySpawnInterval === 0 && Math.random() > spawnSkipChance) spawnEnemy();
 
     // Spawn coins (60 frame interval, sometimes multiple)
     if (frameCount % COIN_SPAWN_INTERVAL === 0) spawnCoin();
@@ -1203,6 +1496,90 @@
     enemies.forEach((e) => {
       e.y += e.speed;
     });
+
+    // --- Boss Logic ---
+    // Check if boss should spawn (final level only)
+    if (currentLevelIndex === LAST_LEVEL_INDEX && !bossSpawned && !bossDefeated && levelScore >= BOSS_SPAWN_SCORE) {
+      bossWarningTimer = BOSS_WARNING_DURATION;
+      bossSpawned = true; // mark as spawned to prevent re-triggering
+    }
+
+    // Boss warning phase
+    if (bossWarningTimer > 0) {
+      bossWarningTimer--;
+      // Flash warning text
+      if (bossWarningTimer % 30 < 15) {
+        addFloatingText(canvas.width / 2, canvas.height / 2 - 80, "⚠️ BOSS即将出现！⚠️", "#fbbf24", 28);
+      }
+      // Spawn boss when warning ends
+      if (bossWarningTimer <= 0) {
+        spawnBoss();
+      }
+    }
+
+    // Update boss
+    if (boss) {
+      if (boss.entering) {
+        // Boss enters from top
+        boss.y += boss.speed;
+        if (boss.y >= canvas.height * 0.2) {
+          boss.entering = false;
+          boss.y = canvas.height * 0.2;
+        }
+      } else if (boss.deathTimer > 0) {
+        // Boss death animation
+        boss.deathTimer--;
+        if (boss.deathTimer % 5 === 0) {
+          spawnStarParticles(boss.x + (Math.random() - 0.5) * boss.w, boss.y + (Math.random() - 0.5) * boss.h, 5);
+        }
+        if (boss.deathTimer <= 0) {
+          // Boss fully defeated
+          boss = null;
+          bossDefeated = true;
+          bossVictoryTimer = 120;
+          addScreenFlash("#fbbf24");
+          // Big celebration
+          for (let i = 0; i < 40; i++) {
+            setTimeout(() => {
+              spawnStarParticles(Math.random() * canvas.width, Math.random() * canvas.height * 0.6, 4);
+            }, i * 30);
+          }
+          addFloatingText(canvas.width / 2, canvas.height / 2, "🎉 BOSS击败！通关！🎉", "#fbbf24", 36);
+        }
+      } else {
+        // Boss active - movement pattern
+        boss.phaseTimer++;
+        // Slow horizontal weaving
+        const roadW = getRoadWidth();
+        const roadX = getRoadX();
+        const centerX = roadX + roadW / 2;
+        boss.x = centerX + Math.sin(boss.phaseTimer * 0.02) * (roadW * 0.3);
+        // Slight vertical bob
+        boss.y = canvas.height * 0.2 + Math.sin(boss.phaseTimer * 0.03) * 15;
+
+        // Shooting
+        boss.shootTimer--;
+        if (boss.shootTimer <= 0) {
+          spawnBossProjectiles(boss);
+          boss.shootTimer = BOSS_SHOOT_INTERVAL;
+        }
+      }
+    }
+
+    // Update boss projectiles
+    bossProjectiles.forEach(proj => {
+      proj.x += proj.vx;
+      proj.y += proj.vy;
+    });
+
+    // Boss victory timer
+    if (bossVictoryTimer > 0) {
+      bossVictoryTimer--;
+      if (bossVictoryTimer <= 0) {
+        showLevelComplete();
+        return;
+      }
+    }
 
     // Update coins
     coins.forEach((c) => {
@@ -1240,6 +1617,10 @@
     enemies = enemies.filter((e) => e.y < canvas.height + 80);
     coins = coins.filter((c) => c.y < canvas.height + 40);
     items = items.filter((item) => item.y < canvas.height + 40);
+    bossProjectiles = bossProjectiles.filter((proj) =>
+      proj.x > -50 && proj.x < canvas.width + 50 &&
+      proj.y > -50 && proj.y < canvas.height + 50
+    );
     particles = particles.filter((p) => p.life > 0);
     floatingTexts = floatingTexts.filter((ft) => ft.life > 0);
     screenFlashes = screenFlashes.filter((flash) => flash.life > 0);
@@ -1326,6 +1707,95 @@
     // Remove dead enemies
     enemies = enemies.filter((e) => e.hp > 0);
 
+    // Collision: player vs boss
+    if (boss && !boss.entering && boss.deathTimer === 0) {
+      players.forEach((p) => {
+        if (!p.alive || p.invincible > 0) return;
+        if (!rectsOverlap(p, boss)) return;
+
+        // Player collided with boss
+        const isSide = isSideCollision(p, boss);
+
+        if (p.shieldTimer > 0) {
+          // Shield: damage boss, no damage to player
+          boss.hp--;
+          boss.shakeTimer = 8;
+          spawnStarParticles(boss.x, boss.y, 8);
+          addFloatingText(boss.x, boss.y - 30, "-1", "#fbbf24", 20);
+          addFloatingText(p.x, p.y - 20, "🛡️ BLOCK!", COLORS.shieldItem, 16);
+        } else if (!isSide) {
+          // Head-on smash: damage boss AND player
+          boss.hp--;
+          boss.shakeTimer = 8;
+          let dmg;
+          if (p.isUnlocked) dmg = HIT_DAMAGE_UNLOCKED;
+          else if (p.isRobot) dmg = HIT_DAMAGE_ROBOT;
+          else dmg = HIT_DAMAGE_CAR;
+          p.hp -= dmg;
+          p.invincible = INVINCIBLE_FRAMES;
+          spawnStarParticles(boss.x, boss.y, 8);
+          showHitText(p.x, p.y, true);
+          addFloatingText(boss.x, boss.y - 30, "-1", "#fbbf24", 20);
+          addFloatingText(p.x, p.y - 30, `-${dmg}`, "#f87171", 14);
+          handleCombo(p);
+        } else {
+          // Side collision: damage player only
+          p.hp -= SIDE_HIT_DAMAGE;
+          p.invincible = INVINCIBLE_FRAMES;
+          addFloatingText(p.x, p.y - 30, `-${SIDE_HIT_DAMAGE}`, "#f87171", 14);
+          showHitText(p.x, p.y, false);
+        }
+
+        // Check player death
+        if (p.hp <= 0) {
+          p.hp = 0;
+          p.alive = false;
+          spawnStarParticles(p.x, p.y, 20);
+          addScreenFlash("#ef4444");
+        }
+
+        // Check boss death
+        if (boss.hp <= 0) {
+          boss.hp = 0;
+          boss.deathTimer = 60;
+          addScreenFlash("#fbbf24");
+          addFloatingText(canvas.width / 2, canvas.height / 2 - 40, "💥 BOSS击毁！💥", "#fbbf24", 32);
+          // Kill all remaining enemies and projectiles
+          enemies.forEach(e => { e.hp = 0; spawnStarParticles(e.x, e.y, 4); });
+          bossProjectiles = [];
+        }
+      });
+    }
+
+    // Collision: player vs boss projectile
+    players.forEach((p) => {
+      if (!p.alive) return;
+      bossProjectiles = bossProjectiles.filter((proj) => {
+        if (circleRectOverlap(proj.x, proj.y, proj.r, p.x, p.y, p.w, p.h)) {
+          if (p.shieldTimer > 0) {
+            // Shield blocks projectile
+            spawnStarParticles(proj.x, proj.y, 5);
+            addFloatingText(proj.x, proj.y - 10, "🛡️ BLOCK!", COLORS.shieldItem, 16);
+            return false;
+          }
+          if (p.invincible > 0) return true;
+          p.hp -= BOSS_PROJECTILE_DAMAGE;
+          p.invincible = INVINCIBLE_FRAMES;
+          addFloatingText(p.x, p.y - 30, `-${BOSS_PROJECTILE_DAMAGE}`, "#f87171", 16);
+          showHitText(p.x, p.y, false);
+          spawnStarParticles(proj.x, proj.y, 6);
+          if (p.hp <= 0) {
+            p.hp = 0;
+            p.alive = false;
+            spawnStarParticles(p.x, p.y, 20);
+            addScreenFlash("#ef4444");
+          }
+          return false;
+        }
+        return true;
+      });
+    });
+
     // Collision: player vs coin
     players.forEach((p) => {
       if (!p.alive) return;
@@ -1386,7 +1856,14 @@
     // Calculate level score from per-level counters
     levelScore = getLevelScoreForPlayer();
 
-    if (levelScore >= level.targetScore && !levelTransitioning) {
+    // In final level, completion requires defeating the boss
+    // In other levels, use normal score threshold
+    const isFinalLevel = currentLevelIndex === LAST_LEVEL_INDEX;
+    const shouldComplete = isFinalLevel
+      ? bossDefeated && bossVictoryTimer <= 0 && !levelTransitioning
+      : levelScore >= level.targetScore && !levelTransitioning;
+
+    if (shouldComplete && !isFinalLevel) {
       levelTransitioning = true;
       levelTransitionTimer = 90; // 1.5 second celebration before showing screen
       addScreenFlash("#fbbf24");
@@ -1427,6 +1904,17 @@
     // Draw enemies
     enemies.forEach(drawEnemyCar);
 
+    // Draw boss
+    if (boss) {
+      drawBoss(boss);
+      if (!boss.entering) {
+        drawBossHpBar(boss);
+      }
+    }
+
+    // Draw boss projectiles
+    bossProjectiles.forEach(drawBossProjectile);
+
     // Draw players
     players.forEach((p) => {
       if (!p.alive) return;
@@ -1459,7 +1947,31 @@
     const barH = 20;
     const barX = (canvas.width - barW) / 2;
     const barY = 52;
-    const pct = Math.min(1, levelScore / level.targetScore);
+
+    // For final level with boss, show boss progress instead
+    const isFinalLevel = currentLevelIndex === LAST_LEVEL_INDEX;
+    let pct, barText;
+
+    if (isFinalLevel && bossSpawned) {
+      // Show boss HP progress
+      if (boss) {
+        pct = 1 - (boss.hp / boss.maxHp); // progress = damage dealt
+        barText = `${level.emoji} 关卡${currentLevelIndex + 1}: ${level.name}  BOSS HP: ${boss.hp}/${boss.maxHp}`;
+      } else if (bossDefeated) {
+        pct = 1;
+        barText = `${level.emoji} 关卡${currentLevelIndex + 1}: ${level.name}  ✅ BOSS已击败!`;
+      } else {
+        pct = Math.min(1, levelScore / BOSS_SPAWN_SCORE);
+        barText = `${level.emoji} 关卡${currentLevelIndex + 1}: ${level.name}  ${levelScore}/${BOSS_SPAWN_SCORE} → BOSS`;
+      }
+    } else if (isFinalLevel) {
+      // Before boss spawned, show score toward boss
+      pct = Math.min(1, levelScore / BOSS_SPAWN_SCORE);
+      barText = `${level.emoji} 关卡${currentLevelIndex + 1}: ${level.name}  ${levelScore}/${BOSS_SPAWN_SCORE} → BOSS`;
+    } else {
+      pct = Math.min(1, levelScore / level.targetScore);
+      barText = `${level.emoji} 关卡${currentLevelIndex + 1}: ${level.name}  ${levelScore}/${level.targetScore}`;
+    }
 
     // Background
     ctx.fillStyle = "rgba(0,0,0,0.5)";
@@ -1475,8 +1987,13 @@
 
     // Fill
     const gradient = ctx.createLinearGradient(barX, 0, barX + barW, 0);
-    gradient.addColorStop(0, "#6366f1");
-    gradient.addColorStop(1, "#a855f7");
+    if (isFinalLevel && bossSpawned) {
+      gradient.addColorStop(0, "#dc2626");
+      gradient.addColorStop(1, "#f97316");
+    } else {
+      gradient.addColorStop(0, "#6366f1");
+      gradient.addColorStop(1, "#a855f7");
+    }
     ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.roundRect(barX, barY, barW * pct, barH, 10);
@@ -1487,7 +2004,7 @@
     ctx.font = "bold 12px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(`${level.emoji} 关卡${currentLevelIndex + 1}: ${level.name}  ${levelScore}/${level.targetScore}`, canvas.width / 2, barY + barH / 2);
+    ctx.fillText(barText, canvas.width / 2, barY + barH / 2);
   }
 
   // --- Initial HUD setup ---
