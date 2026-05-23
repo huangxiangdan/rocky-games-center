@@ -93,6 +93,9 @@
   let levelTransitioning = false;
   let levelTransitionTimer = 0;
   let gameCompleted = false;
+  // Per-level coin/smash counters (reset each level)
+  let levelCoins = 0;
+  let levelSmashes = 0;
 
   // --- Input ---
   const keys = {};
@@ -210,6 +213,8 @@
     currentEnemySpawnInterval = ENEMY_SPAWN_INITIAL;
     currentLevelIndex = 0;
     levelScore = 0;
+    levelCoins = 0;
+    levelSmashes = 0;
     levelTransitioning = false;
     levelTransitionTimer = 0;
     gameCompleted = false;
@@ -230,6 +235,8 @@
     if (levelCompleteScreen) levelCompleteScreen.style.display = "none";
     currentLevelIndex++;
     levelScore = 0;
+    levelCoins = 0;
+    levelSmashes = 0;
     levelTransitioning = false;
     levelTransitionTimer = 0;
     frameCount = 0;
@@ -241,12 +248,23 @@
     floatingTexts = [];
     screenFlashes = [];
     currentEnemySpawnInterval = ENEMY_SPAWN_INITIAL;
+    unlockedCars = { p1: false, p2: false };
 
     // Heal players partially for next level
     players.forEach((p) => {
       if (p.alive) {
         p.hp = Math.min(MAX_HP, p.hp + 30);
       }
+      // Reset per-level tracking for transform/unlock checks
+      p.coins = 0;
+      p.smashes = 0;
+      p.isRobot = false;
+      p.isUnlocked = false;
+      p.invincible = 0;
+      p.comboCount = 0;
+      p.comboTimer = 0;
+      p.boostTimer = 0;
+      p.shieldTimer = 0;
     });
 
     gameRunning = true;
@@ -266,9 +284,9 @@
       if (gameCompleteScreen) {
         let info = "";
         if (twoPlayerMode) {
-          info = `P1: 💰${players[0].coins} 💥${players[0].smashes} | P2: 💰${players[1].coins} 💥${players[1].smashes}`;
+          info = `本关 - P1: 💰${players[0].coins} 💥${players[0].smashes} | P2: 💰${players[1].coins} 💥${players[1].smashes} | 本关得分: ${levelScore}`;
         } else {
-          info = `收集金币: ${players[0].coins} | 撞毁敌车: ${players[0].smashes}`;
+          info = `本关 - 收集金币: ${levelCoins} | 撞毁敌车: ${levelSmashes} | 本关得分: ${levelScore}`;
         }
         if (gameCompleteInfo) gameCompleteInfo.textContent = info;
         gameCompleteScreen.style.display = "flex";
@@ -276,7 +294,7 @@
     } else {
       if (levelCompleteScreen) {
         if (levelCompleteTitle) levelCompleteTitle.textContent = `${level.emoji} ${level.name} 通过！`;
-        let info = `得分: ${levelScore}/${level.targetScore}`;
+        let info = `本关得分: ${levelScore}/${level.targetScore}`;
         const nextLevel = LEVELS[currentLevelIndex + 1];
         info += ` | 下一关: ${nextLevel.emoji} ${nextLevel.name}`;
         if (levelCompleteInfo) levelCompleteInfo.textContent = info;
@@ -294,9 +312,9 @@
     }
   }
 
-  // --- Get Level Score for a player ---
-  function getLevelScoreForPlayer(p) {
-    return p.coins + p.smashes * 2; // smashes are worth more
+  // --- Get Level Score (uses per-level counters) ---
+  function getLevelScoreForPlayer() {
+    return levelCoins + levelSmashes * 2; // smashes are worth more
   }
 
   // --- Road Helpers ---
@@ -564,6 +582,7 @@
     if (player.comboCount >= 3) {
       const comboBonus = player.comboCount;
       player.coins += comboBonus;
+      levelCoins += comboBonus;
       addFloatingText(
         player.x,
         player.y - 40,
@@ -1064,7 +1083,7 @@
       if (p.boostTimer > 0) effects.push("⚡");
       const comboText = p.comboCount >= 3 ? ` | 🔥x${p.comboCount}` : "";
       const effectText = effects.length > 0 ? ` | ${effects.join("")}` : "";
-      stat1El.textContent = `💰${p.coins} | 💥${p.smashes} | ${form}${comboText}${effectText}`;
+      stat1El.textContent = `💰${levelCoins} | 💥${levelSmashes} | ${form}${comboText}${effectText}`;
     }
 
     if (twoPlayerMode) {
@@ -1080,7 +1099,7 @@
         if (p.boostTimer > 0) effects.push("⚡");
         const comboText = p.comboCount >= 3 ? ` | 🔥x${p.comboCount}` : "";
         const effectText = effects.length > 0 ? ` | ${effects.join("")}` : "";
-        stat2El.textContent = `💰${p.coins} | 💥${p.smashes} | ${form}${comboText}${effectText}`;
+        stat2El.textContent = `💰${levelCoins} | 💥${levelSmashes} | ${form}${comboText}${effectText}`;
       }
     } else {
       hudP2.style.display = "none";
@@ -1131,7 +1150,7 @@
       info.textContent = `关卡${currentLevelIndex + 1}: ${level.emoji}${level.name} | P1: 💰${players[0].coins} 💥${players[0].smashes} | P2: 💰${players[1].coins} 💥${players[1].smashes}`;
     } else {
       title.textContent = "游戏结束 😢";
-      info.textContent = `关卡${currentLevelIndex + 1}: ${level.emoji}${level.name} | 得分: ${levelScore}/${level.targetScore} | 💰${bestPlayer.coins} 💥${bestPlayer.smashes}`;
+      info.textContent = `关卡${currentLevelIndex + 1}: ${level.emoji}${level.name} | 本关得分: ${levelScore}/${level.targetScore} | 💰${levelCoins} 💥${levelSmashes}`;
     }
 
     gameoverScreen.style.display = "flex";
@@ -1235,6 +1254,7 @@
           if (p.shieldTimer > 0) {
             e.hp = 0;
             p.smashes++;
+            levelSmashes++;
             spawnStarParticles(e.x, e.y, 8);
             showHitText(e.x, e.y, true);
             handleCombo(p);
@@ -1246,6 +1266,7 @@
           // Player smashes enemy
           e.hp = 0;
           p.smashes++;
+          levelSmashes++;
           spawnStarParticles(e.x, e.y, 10);
 
           // Determine damage based on collision type
@@ -1311,6 +1332,7 @@
       coins = coins.filter((c) => {
         if (circleRectOverlap(c.x, c.y, c.r, p.x, p.y, p.w, p.h)) {
           p.coins++;
+          levelCoins++;
           spawnCoinParticles(c.x, c.y);
           // Floating +1 coin text
           addFloatingText(c.x, c.y - 10, "+1💰", COLORS.coin, 16);
@@ -1361,11 +1383,8 @@
 
     // Check level completion
     const level = LEVELS[currentLevelIndex];
-    // Calculate level score: coins + smashes * 2
-    levelScore = 0;
-    players.forEach((p) => {
-      levelScore += getLevelScoreForPlayer(p);
-    });
+    // Calculate level score from per-level counters
+    levelScore = getLevelScoreForPlayer();
 
     if (levelScore >= level.targetScore && !levelTransitioning) {
       levelTransitioning = true;
