@@ -36,6 +36,16 @@
   const INVINCIBLE_FRAMES = 30;
   const COMBO_WINDOW = 120; // frames to maintain combo
 
+  // --- Level System ---
+  const LEVELS = [
+    { name: "新手公路", targetScore: 20, enemySpeedMul: 1.0, spawnMul: 1.0, emoji: "🛣️" },
+    { name: "城市快车道", targetScore: 35, enemySpeedMul: 1.15, spawnMul: 1.15, emoji: "🏙️" },
+    { name: "沙漠风暴", targetScore: 50, enemySpeedMul: 1.3, spawnMul: 1.3, emoji: "🏜️" },
+    { name: "雪山险路", targetScore: 70, enemySpeedMul: 1.5, spawnMul: 1.5, emoji: "🏔️" },
+    { name: "终极挑战", targetScore: 100, enemySpeedMul: 1.8, spawnMul: 1.7, emoji: "🔥" },
+  ];
+  const LAST_LEVEL_INDEX = LEVELS.length - 1;
+
   // Item types
   const ITEM_HEAL = "heal";
   const ITEM_BOOST = "boost";
@@ -77,6 +87,12 @@
   let unlockedCars = { p1: false, p2: false };
   let currentEnemySpawnInterval = ENEMY_SPAWN_INITIAL;
   let gameTimeSeconds = 0;
+  // Level state
+  let currentLevelIndex = 0;
+  let levelScore = 0; // score for current level (coins + smashes)
+  let levelTransitioning = false;
+  let levelTransitionTimer = 0;
+  let gameCompleted = false;
 
   // --- Input ---
   const keys = {};
@@ -133,6 +149,18 @@
   startBtn.addEventListener("click", startGame);
   restartBtn.addEventListener("click", startGame);
 
+  // Level UI elements
+  const levelCompleteScreen = document.getElementById("level-complete-screen");
+  const levelCompleteTitle = document.getElementById("level-complete-title");
+  const levelCompleteInfo = document.getElementById("level-complete-info");
+  const nextLevelBtn = document.getElementById("next-level-btn");
+  const gameCompleteScreen = document.getElementById("game-complete-screen");
+  const gameCompleteInfo = document.getElementById("game-complete-info");
+  const playAgainBtn = document.getElementById("play-again-btn");
+
+  if (nextLevelBtn) nextLevelBtn.addEventListener("click", nextLevel);
+  if (playAgainBtn) playAgainBtn.addEventListener("click", startGame);
+
   // --- Player Class ---
   function createPlayer(id, x, color, robotColor, unlockedColor) {
     return {
@@ -167,6 +195,8 @@
   function startGame() {
     startScreen.style.display = "none";
     gameoverScreen.style.display = "none";
+    if (levelCompleteScreen) levelCompleteScreen.style.display = "none";
+    if (gameCompleteScreen) gameCompleteScreen.style.display = "none";
     gameRunning = true;
     frameCount = 0;
     gameTimeSeconds = 0;
@@ -178,6 +208,11 @@
     screenFlashes = [];
     unlockedCars = { p1: false, p2: false };
     currentEnemySpawnInterval = ENEMY_SPAWN_INITIAL;
+    currentLevelIndex = 0;
+    levelScore = 0;
+    levelTransitioning = false;
+    levelTransitionTimer = 0;
+    gameCompleted = false;
 
     const roadW = getRoadWidth();
     const roadX = getRoadX();
@@ -188,6 +223,80 @@
     }
 
     requestAnimationFrame(gameLoop);
+  }
+
+  // --- Next Level ---
+  function nextLevel() {
+    if (levelCompleteScreen) levelCompleteScreen.style.display = "none";
+    currentLevelIndex++;
+    levelScore = 0;
+    levelTransitioning = false;
+    levelTransitionTimer = 0;
+    frameCount = 0;
+    gameTimeSeconds = 0;
+    enemies = [];
+    coins = [];
+    items = [];
+    particles = [];
+    floatingTexts = [];
+    screenFlashes = [];
+    currentEnemySpawnInterval = ENEMY_SPAWN_INITIAL;
+
+    // Heal players partially for next level
+    players.forEach((p) => {
+      if (p.alive) {
+        p.hp = Math.min(MAX_HP, p.hp + 30);
+      }
+    });
+
+    gameRunning = true;
+    requestAnimationFrame(gameLoop);
+  }
+
+  // --- Level Complete ---
+  function showLevelComplete() {
+    gameRunning = false;
+    levelTransitioning = false;
+
+    const level = LEVELS[currentLevelIndex];
+
+    if (currentLevelIndex >= LAST_LEVEL_INDEX) {
+      // Game completed!
+      gameCompleted = true;
+      if (gameCompleteScreen) {
+        let info = "";
+        if (twoPlayerMode) {
+          info = `P1: 💰${players[0].coins} 💥${players[0].smashes} | P2: 💰${players[1].coins} 💥${players[1].smashes}`;
+        } else {
+          info = `收集金币: ${players[0].coins} | 撞毁敌车: ${players[0].smashes}`;
+        }
+        if (gameCompleteInfo) gameCompleteInfo.textContent = info;
+        gameCompleteScreen.style.display = "flex";
+      }
+    } else {
+      if (levelCompleteScreen) {
+        if (levelCompleteTitle) levelCompleteTitle.textContent = `${level.emoji} ${level.name} 通过！`;
+        let info = `得分: ${levelScore}/${level.targetScore}`;
+        const nextLevel = LEVELS[currentLevelIndex + 1];
+        info += ` | 下一关: ${nextLevel.emoji} ${nextLevel.name}`;
+        if (levelCompleteInfo) levelCompleteInfo.textContent = info;
+        levelCompleteScreen.style.display = "flex";
+      }
+    }
+
+    // Celebration particles
+    for (let i = 0; i < 30; i++) {
+      setTimeout(() => {
+        const x = Math.random() * canvas.width;
+        const y = Math.random() * canvas.height * 0.5;
+        spawnStarParticles(x, y, 5);
+      }, i * 50);
+    }
+  }
+
+  // --- Get Level Score for a player ---
+  function getLevelScoreForPlayer(p) {
+    return p.coins + p.smashes * 2; // smashes are worth more
   }
 
   // --- Road Helpers ---
@@ -214,15 +323,19 @@
   }
 
   function getEnemySpawnInterval() {
+    const level = LEVELS[currentLevelIndex];
     const t = Math.max(0, gameTimeSeconds - 10);
     // Gradually decrease from ENEMY_SPAWN_INITIAL to ENEMY_SPAWN_MIN
     const interval = ENEMY_SPAWN_INITIAL - t * 0.15;
-    return Math.max(ENEMY_SPAWN_MIN, Math.floor(interval));
+    const baseInterval = Math.max(ENEMY_SPAWN_MIN, Math.floor(interval));
+    // Apply level spawn multiplier (lower = harder)
+    return Math.max(ENEMY_SPAWN_MIN, Math.floor(baseInterval / level.spawnMul));
   }
 
   function getEnemySpeed() {
+    const level = LEVELS[currentLevelIndex];
     const base = ENEMY_BASE_SPEED + Math.random() * 1.5;
-    return base * getDifficultyMultiplier();
+    return base * getDifficultyMultiplier() * level.enemySpeedMul;
   }
 
   // --- Spawn Enemies ---
@@ -989,6 +1102,7 @@
   // --- Game Over ---
   function gameOver() {
     gameRunning = false;
+    levelTransitioning = false;
     const title = document.getElementById("gameover-title");
     const info = document.getElementById("gameover-info");
 
@@ -1002,6 +1116,8 @@
       }
     }
 
+    const level = LEVELS[currentLevelIndex];
+
     if (twoPlayerMode) {
       const p1alive = players[0].alive;
       const p2alive = players[1] && players[1].alive;
@@ -1012,10 +1128,10 @@
       } else {
         title.textContent = "游戏结束 😢";
       }
-      info.textContent = `P1: 💰${players[0].coins} 💥${players[0].smashes} | P2: 💰${players[1].coins} 💥${players[1].smashes}`;
+      info.textContent = `关卡${currentLevelIndex + 1}: ${level.emoji}${level.name} | P1: 💰${players[0].coins} 💥${players[0].smashes} | P2: 💰${players[1].coins} 💥${players[1].smashes}`;
     } else {
       title.textContent = "游戏结束 😢";
-      info.textContent = `收集金币: ${bestPlayer.coins} | 撞毁敌车: ${bestPlayer.smashes}`;
+      info.textContent = `关卡${currentLevelIndex + 1}: ${level.emoji}${level.name} | 得分: ${levelScore}/${level.targetScore} | 💰${bestPlayer.coins} 💥${bestPlayer.smashes}`;
     }
 
     gameoverScreen.style.display = "flex";
@@ -1243,6 +1359,30 @@
       });
     });
 
+    // Check level completion
+    const level = LEVELS[currentLevelIndex];
+    // Calculate level score: coins + smashes * 2
+    levelScore = 0;
+    players.forEach((p) => {
+      levelScore += getLevelScoreForPlayer(p);
+    });
+
+    if (levelScore >= level.targetScore && !levelTransitioning) {
+      levelTransitioning = true;
+      levelTransitionTimer = 90; // 1.5 second celebration before showing screen
+      addScreenFlash("#fbbf24");
+      // Show big text
+      addFloatingText(canvas.width / 2, canvas.height / 2 - 40, "🎉 关卡通过！🎉", "#fbbf24", 32);
+    }
+
+    if (levelTransitioning) {
+      levelTransitionTimer--;
+      if (levelTransitionTimer <= 0) {
+        showLevelComplete();
+        return;
+      }
+    }
+
     // Check game over
     const allDead = players.every((p) => !p.alive);
     if (allDead) {
@@ -1284,10 +1424,51 @@
     // Draw screen flashes
     drawScreenFlashes();
 
+    // Draw level progress bar
+    drawLevelProgress();
+
     // Update HUD
     updateHUD();
 
     requestAnimationFrame(gameLoop);
+  }
+
+  // --- Draw Level Progress Bar ---
+  function drawLevelProgress() {
+    const level = LEVELS[currentLevelIndex];
+    const barW = Math.min(280, canvas.width * 0.5);
+    const barH = 20;
+    const barX = (canvas.width - barW) / 2;
+    const barY = 52;
+    const pct = Math.min(1, levelScore / level.targetScore);
+
+    // Background
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.beginPath();
+    ctx.roundRect(barX - 2, barY - 2, barW + 4, barH + 4, 12);
+    ctx.fill();
+
+    // Track
+    ctx.fillStyle = "rgba(255,255,255,0.15)";
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, barW, barH, 10);
+    ctx.fill();
+
+    // Fill
+    const gradient = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+    gradient.addColorStop(0, "#6366f1");
+    gradient.addColorStop(1, "#a855f7");
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, barW * pct, barH, 10);
+    ctx.fill();
+
+    // Text
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(`${level.emoji} 关卡${currentLevelIndex + 1}: ${level.name}  ${levelScore}/${level.targetScore}`, canvas.width / 2, barY + barH / 2);
   }
 
   // --- Initial HUD setup ---
