@@ -634,11 +634,24 @@ function enemyCombo() {
 elements.startBtn.addEventListener('click', startGame);
 elements.restartBtn.addEventListener('click', startGame);
 
-// Punch buttons
+// Punch buttons - use touchstart for instant response on mobile
+elements.btnLeft.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  punch('left');
+});
 elements.btnLeft.addEventListener('click', () => punch('left'));
+
+elements.btnRight.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  punch('right');
+});
 elements.btnRight.addEventListener('click', () => punch('right'));
 
-// Crit button
+// Crit button - touchstart for instant response
+elements.btnCrit.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  criticalHit();
+});
 elements.btnCrit.addEventListener('click', criticalHit);
 
 // Defend button (touch events for hold)
@@ -658,6 +671,13 @@ elements.btnDefend.addEventListener('touchcancel', stopDefend);
 elements.btnDefend.addEventListener('mousedown', startDefend);
 elements.btnDefend.addEventListener('mouseup', stopDefend);
 elements.btnDefend.addEventListener('mouseleave', stopDefend);
+
+// Prevent double-tap zoom on buttons
+document.addEventListener('touchstart', (e) => {
+  if (e.target.closest('.fight-btn') || e.target.closest('.big-btn')) {
+    e.preventDefault();
+  }
+}, { passive: false });
 
 // Prevent context menu on long press
 document.addEventListener('contextmenu', (e) => e.preventDefault());
