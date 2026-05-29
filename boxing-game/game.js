@@ -634,6 +634,19 @@ function enemyCombo() {
 elements.startBtn.addEventListener('click', startGame);
 elements.restartBtn.addEventListener('click', startGame);
 
+// Start and restart buttons - touchstart for mobile
+elements.startBtn.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  startGame();
+});
+elements.startBtn.addEventListener('click', startGame);
+
+elements.restartBtn.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  startGame();
+});
+elements.restartBtn.addEventListener('click', startGame);
+
 // Punch buttons - use touchstart for instant response on mobile
 elements.btnLeft.addEventListener('touchstart', (e) => {
   e.preventDefault();
@@ -672,9 +685,9 @@ elements.btnDefend.addEventListener('mousedown', startDefend);
 elements.btnDefend.addEventListener('mouseup', stopDefend);
 elements.btnDefend.addEventListener('mouseleave', stopDefend);
 
-// Prevent double-tap zoom on buttons
+// Prevent double-tap zoom on game buttons only (not start/restart)
 document.addEventListener('touchstart', (e) => {
-  if (e.target.closest('.fight-btn') || e.target.closest('.big-btn')) {
+  if (e.target.closest('.fight-btn')) {
     e.preventDefault();
   }
 }, { passive: false });
