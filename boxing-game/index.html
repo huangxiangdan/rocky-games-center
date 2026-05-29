@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>🥊 拳击大作战</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="game-container">
+    <!-- 开始界面 -->
+    <div id="start-screen" class="screen active">
+      <div class="title-area">
+        <div class="title-emoji">🥊</div>
+        <h1>拳击大作战</h1>
+        <p class="subtitle">触屏格斗 · 暴击制胜</p>
+      </div>
+      <div class="start-info">
+        <div class="info-item">👊 左右出拳攻击</div>
+        <div class="info-item">🛡️ 按住防御减伤</div>
+        <div class="info-item">⚡ 暴击双倍伤害</div>
+      </div>
+      <button id="start-btn" class="big-btn">开始战斗！</button>
+    </div>
+
+    <!-- 游戏界面 -->
+    <div id="game-screen" class="screen">
+      <!-- 顶部信息栏 -->
+      <div id="top-bar">
+        <div class="player-info">
+          <span class="player-name">🧑 你</span>
+          <div class="hp-bar">
+            <div id="player-hp" class="hp-fill player-hp-fill"></div>
+          </div>
+          <span id="player-hp-text" class="hp-text">100</span>
+        </div>
+        <div id="round-timer">60</div>
+        <div class="player-info enemy-info">
+          <span class="player-name">🤖 对手</span>
+          <div class="hp-bar">
+            <div id="enemy-hp" class="hp-fill enemy-hp-fill"></div>
+          </div>
+          <span id="enemy-hp-text" class="hp-text">100</span>
+        </div>
+      </div>
+
+      <!-- 分数 -->
+      <div id="score-bar">
+        <span>得分: <strong id="score">0</strong></span>
+        <span>连击: <strong id="combo">0</strong></span>
+      </div>
+
+      <!-- 拳击台 -->
+      <div id="ring">
+        <div id="player-fighter" class="fighter player-side">
+          <div class="fighter-body">
+            <div class="fighter-head">🧑</div>
+            <div class="fighter-gloves">
+              <span class="glove left-glove">🥊</span>
+              <span class="glove right-glove">🥊</span>
+            </div>
+          </div>
+        </div>
+        <div id="enemy-fighter" class="fighter enemy-side">
+          <div class="fighter-body">
+            <div class="fighter-head">🤖</div>
+            <div class="fighter-gloves">
+              <span class="glove left-glove">🥊</span>
+              <span class="glove right-glove">🥊</span>
+            </div>
+          </div>
+        </div>
+        <!-- 特效层 -->
+        <div id="effects-layer"></div>
+      </div>
+
+      <!-- 操作按钮 -->
+      <div id="controls">
+        <div class="controls-row">
+          <button id="btn-left" class="fight-btn punch-btn">
+            <span class="btn-icon">👊</span>
+            <span class="btn-label">左拳</span>
+          </button>
+          <button id="btn-defend" class="fight-btn defend-btn">
+            <span class="btn-icon">🛡️</span>
+            <span class="btn-label">防御</span>
+          </button>
+          <button id="btn-right" class="fight-btn punch-btn">
+            <span class="btn-icon">👊</span>
+            <span class="btn-label">右拳</span>
+          </button>
+        </div>
+        <div class="controls-row">
+          <button id="btn-crit" class="fight-btn crit-btn">
+            <span class="btn-icon">⚡</span>
+            <span class="btn-label">暴击</span>
+            <div id="crit-cooldown" class="cooldown-bar">
+              <div id="crit-cooldown-fill" class="cooldown-fill"></div>
+            </div>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 结束界面 -->
+    <div id="end-screen" class="screen">
+      <div class="title-emoji" id="result-emoji">🏆</div>
+      <h1 id="result-title">胜利！</h1>
+      <p id="result-score">得分: 0</p>
+      <div id="result-stats"></div>
+      <button id="restart-btn" class="big-btn">再来一局！</button>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
