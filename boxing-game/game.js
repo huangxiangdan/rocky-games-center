@@ -634,38 +634,32 @@ function enemyCombo() {
 elements.startBtn.addEventListener('click', startGame);
 elements.restartBtn.addEventListener('click', startGame);
 
-// Start and restart buttons - touchstart for mobile
-elements.startBtn.addEventListener('touchstart', (e) => {
-  e.preventDefault();
-  startGame();
-});
-elements.startBtn.addEventListener('click', startGame);
+// Use a helper to avoid duplicate triggers from touch + click
+let lastTouchTime = 0;
 
-elements.restartBtn.addEventListener('touchstart', (e) => {
-  e.preventDefault();
-  startGame();
-});
-elements.restartBtn.addEventListener('click', startGame);
+function onBtn(el, handler) {
+  el.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    lastTouchTime = Date.now();
+    handler();
+  });
+  el.addEventListener('click', () => {
+    // Skip if touch just fired (< 300ms ago)
+    if (Date.now() - lastTouchTime < 300) return;
+    handler();
+  });
+}
 
-// Punch buttons - use touchstart for instant response on mobile
-elements.btnLeft.addEventListener('touchstart', (e) => {
-  e.preventDefault();
-  punch('left');
-});
-elements.btnLeft.addEventListener('click', () => punch('left'));
+// Start and restart buttons
+onBtn(elements.startBtn, startGame);
+onBtn(elements.restartBtn, startGame);
 
-elements.btnRight.addEventListener('touchstart', (e) => {
-  e.preventDefault();
-  punch('right');
-});
-elements.btnRight.addEventListener('click', () => punch('right'));
+// Punch buttons
+onBtn(elements.btnLeft, () => punch('left'));
+onBtn(elements.btnRight, () => punch('right'));
 
-// Crit button - touchstart for instant response
-elements.btnCrit.addEventListener('touchstart', (e) => {
-  e.preventDefault();
-  criticalHit();
-});
-elements.btnCrit.addEventListener('click', criticalHit);
+// Crit button
+onBtn(elements.btnCrit, criticalHit);
 
 // Defend button (touch events for hold)
 elements.btnDefend.addEventListener('touchstart', (e) => {
