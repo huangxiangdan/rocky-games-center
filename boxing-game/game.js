@@ -17,7 +17,20 @@ const state = {
   totalDefends: 0,
   enemyActionTimer: null,
   gameTimer: null,
-  cooldownTimer: null
+  cooldownTimer: null,
+  ai: {
+    isDefending: false,
+    critCooldown: 0,
+    critMaxCooldown: 8,
+    lastActionTime: 0,
+    playerRecentAttacks: 0,
+    playerRecentDefends: 0,
+    behaviorWindow: 0,
+    feinting: false,
+    comboCount: 0,
+    rage: false,
+    difficulty: 1.0
+  }
 };
 
 // ========== DOM Elements ==========
@@ -65,6 +78,16 @@ function startGame() {
   state.totalHits = 0;
   state.totalCrits = 0;
   state.totalDefends = 0;
+  state.ai.isDefending = false;
+  state.ai.critCooldown = 0;
+  state.ai.lastActionTime = 0;
+  state.ai.playerRecentAttacks = 0;
+  state.ai.playerRecentDefends = 0;
+  state.ai.behaviorWindow = 0;
+  state.ai.feinting = false;
+  state.ai.comboCount = 0;
+  state.ai.rage = false;
+  state.ai.difficulty = 1.0;
 
   // Update UI
   updateHP();
@@ -173,15 +196,31 @@ function startGameTimer() {
 function startCooldownTimer() {
   state.cooldownTimer = setInterval(() => {
     if (!state.gameRunning) return;
-    
+
     if (state.critCooldown > 0) {
       state.critCooldown -= 0.1;
       const percent = (1 - state.critCooldown / state.critMaxCooldown) * 100;
       elements.critCooldownFill.style.width = `${percent}%`;
-      
+
       if (state.critCooldown <= 0) {
         elements.btnCrit.classList.remove('on-cooldown');
       }
+    }
+
+    // AI crit cooldown
+    if (state.ai.critCooldown > 0) {
+      state.ai.critCooldown -= 0.1;
+    }
+
+    // AI difficulty increases over time (1.0 -> 2.0 over 60 seconds)
+    state.ai.difficulty = Math.min(2.0, 1.0 + (60 - state.timeLeft) / 60);
+
+    // Decay player behavior window every 5 seconds
+    state.ai.behaviorWindow += 0.1;
+    if (state.ai.behaviorWindow >= 5) {
+      state.ai.playerRecentAttacks = Math.floor(state.ai.playerRecentAttacks / 2);
+      state.ai.playerRecentDefends = Math.floor(state.ai.playerRecentDefends / 2);
+      state.ai.behaviorWindow = 0;
     }
   }, 100);
 }
@@ -197,6 +236,7 @@ function punch(side) {
   if (!state.gameRunning) return;
   
   state.totalPunches++;
+  state.ai.playerRecentAttacks++;
   const now = Date.now();
   
   // Check combo timing (within 1 second)
@@ -258,6 +298,7 @@ function startDefend() {
   if (!state.gameRunning) return;
   state.isDefending = true;
   state.totalDefends++;
+  state.ai.playerRecentDefends++;
   elements.btnDefend.classList.add('defending-active');
   elements.playerFighter.classList.add('defending');
 }
@@ -270,6 +311,10 @@ function stopDefend() {
 
 // ========== Damage & Effects ==========
 function dealDamageToEnemy(damage, isCrit) {
+  if (state.ai.isDefending) {
+    damage = Math.floor(damage * 0.3);
+    showEffect('🛡️', 'effect-defend', 70, 50);
+  }
   state.enemyHP = Math.max(0, state.enemyHP - damage);
   updateHP();
 
