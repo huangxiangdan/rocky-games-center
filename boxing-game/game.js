@@ -9,6 +9,8 @@ const state = {
   isDefending: false,
   critCooldown: 0,
   critMaxCooldown: 5, // 5 seconds
+  punchCooldown: 0, // Player punch cooldown (ms)
+  punchCooldownMax: 350, // 350ms between punches
   gameRunning: false,
   lastPunchTime: 0,
   totalPunches: 0,
@@ -77,6 +79,7 @@ function startGame() {
   state.timeLeft = 60;
   state.isDefending = false;
   state.critCooldown = 0;
+  state.punchCooldown = 0;
   state.gameRunning = true;
   state.lastPunchTime = 0;
   state.totalPunches = 0;
@@ -245,9 +248,12 @@ function clearAllTimers() {
 function punch(side) {
   if (!state.gameRunning) return;
   
+  // Punch cooldown - can't spam attacks
+  const now = Date.now();
+  if (now - state.lastPunchTime < state.punchCooldownMax) return;
+  
   state.totalPunches++;
   state.ai.playerRecentAttacks++;
-  const now = Date.now();
   
   // Check combo timing (within 1 second)
   if (now - state.lastPunchTime < 1000) {
