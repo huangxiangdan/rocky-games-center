@@ -21,7 +21,7 @@ const state = {
   ai: {
     isDefending: false,
     critCooldown: 0,
-    critMaxCooldown: 8,
+    critMaxCooldown: 6,
     lastActionTime: 0,
     playerRecentAttacks: 0,
     playerRecentDefends: 0,
@@ -29,7 +29,12 @@ const state = {
     feinting: false,
     comboCount: 0,
     rage: false,
-    difficulty: 1.0
+    difficulty: 1.0,
+    pressureMode: false,
+    pressureCount: 0,
+    restTimer: 0,
+    counterMode: false,
+    counterCount: 0
   }
 };
 
@@ -88,6 +93,11 @@ function startGame() {
   state.ai.comboCount = 0;
   state.ai.rage = false;
   state.ai.difficulty = 1.0;
+  state.ai.pressureMode = false;
+  state.ai.pressureCount = 0;
+  state.ai.restTimer = 0;
+  state.ai.counterMode = false;
+  state.ai.counterCount = 0;
 
   // Update UI
   updateHP();
@@ -421,51 +431,185 @@ function flashScreen(className) {
 
 // ========== Enemy AI ==========
 function startEnemyAI() {
-  let lastAction = 0;
-  
   state.enemyActionTimer = setInterval(() => {
     if (!state.gameRunning) return;
 
     const now = Date.now();
-    const timeSinceLastAction = now - lastAction;
-    
-    // Enemy attacks every 800-1500ms
-    if (timeSinceLastAction < 800) return;
+    const ai = state.ai;
+    const elapsed = 60 - state.timeLeft;
 
-    const action = Math.random();
-    
-    if (action < 0.7) {
-      // Attack
-      enemyAttack();
-      lastAction = now;
-    } else if (action < 0.85) {
-      // Defend briefly
-      enemyDefend();
-      lastAction = now - 400; // Shorter cooldown for defend
+    // Update rage mode
+    ai.rage = state.enemyHP <= 30;
+
+    // Rest timer (after pressure)
+    if (ai.restTimer > 0) {
+      ai.restTimer -= 0.15;
+      return;
     }
-    // Sometimes do nothing (feint)
-  }, 200);
+
+    // Difficulty curve: 1.0 -> 2.5 over 60 seconds
+    ai.difficulty = Math.min(2.5, 1.0 + elapsed / 40);
+
+    // Base attack interval: gets faster with difficulty and rage
+    let baseInterval = 600 - (ai.difficulty - 1) * 150; // 600ms -> 225ms
+    if (ai.rage) baseInterval *= 0.5; // Rage = double speed
+    baseInterval = Math.max(200, baseInterval);
+
+    const timeSinceLastAction = now - ai.lastActionTime;
+    if (timeSinceLastAction < baseInterval) return;
+
+    // ===== Pressure Mode: AI goes all-out attack =====
+    if (ai.pressureMode) {
+      ai.pressureCount--;
+      enemyAttack();
+      ai.lastActionTime = now;
+      if (ai.pressureCount <= 0) {
+        ai.pressureMode = false;
+        ai.restTimer = 1.5; // Rest after pressure
+      }
+      return;
+    }
+
+    // ===== Counter Mode: after being hit hard, counter-attack =====
+    if (ai.counterMode) {
+      ai.counterCount--;
+      enemyAttack();
+      ai.lastActionTime = now;
+      if (ai.counterCount <= 0) {
+        ai.counterMode = false;
+      }
+      return;
+    }
+
+    // ===== AI Decision Making =====
+    const playerAggro = ai.playerRecentAttacks >= 3;
+    const playerTurtling = ai.playerRecentDefends >= 2 && ai.playerRecentAttacks <= 1;
+    const canCrit = ai.critCooldown <= 0;
+
+    // Random roll for action
+    let roll = Math.random() * 100;
+
+    // Player is aggressive -> defend more and counter
+    if (playerAggro) {
+      if (roll < 35) {
+        // Defend and counter
+        enemySmartDefend(800);
+        ai.lastActionTime = now - baseInterval * 0.3;
+        // Schedule counter after defend
+        setTimeout(() => {
+          if (state.gameRunning) {
+            ai.counterMode = true;
+            ai.counterCount = 2;
+          }
+        }, 600);
+        return;
+      }
+      roll -= 35;
+    }
+
+    // Player is turtling -> pressure attack
+    if (playerTurtling && roll < 40) {
+      ai.pressureMode = true;
+      ai.pressureCount = 4;
+      ai.lastActionTime = now;
+      return;
+    }
+
+    // Random pressure burst (every ~8 seconds)
+    if (Math.random() < 0.03 * ai.difficulty) {
+      ai.pressureMode = true;
+      ai.pressureCount = 3 + Math.floor(Math.random() * 3); // 3-5 attacks
+      if (ai.rage) ai.pressureCount += 2;
+      ai.lastActionTime = now;
+      return;
+    }
+
+    // AI crit attack
+    if (canCrit && roll < (ai.rage ? 25 : 15)) {
+      enemyCritAttack();
+      ai.critCooldown = ai.critMaxCooldown;
+      ai.lastActionTime = now;
+      return;
+    }
+
+    // AI combo (2-3 quick hits)
+    if (roll < (ai.rage ? 50 : 35)) {
+      enemyCombo(2 + (ai.rage ? 1 : 0));
+      ai.lastActionTime = now;
+      return;
+    }
+
+    // Smart defend
+    if (roll < 50) {
+      enemySmartDefend(600 + Math.random() * 400);
+      ai.lastActionTime = now - baseInterval * 0.3;
+      return;
+    }
+
+    // Normal attack
+    enemyAttack();
+    ai.lastActionTime = now;
+  }, 150);
 }
 
 function enemyAttack() {
-  // Animate enemy
   const side = Math.random() < 0.5 ? 'left' : 'right';
   elements.enemyFighter.classList.add(`punching-${side}`);
-  
+
   setTimeout(() => {
     elements.enemyFighter.classList.remove(`punching-${side}`);
-    
-    // Deal damage after animation
-    const baseDamage = 10 + Math.floor(Math.random() * 8);
+    let baseDamage = 10 + Math.floor(Math.random() * 6);
+    // Difficulty and rage scaling
+    baseDamage = Math.floor(baseDamage * (1 + (state.ai.difficulty - 1) * 0.3));
+    if (state.ai.rage) baseDamage = Math.floor(baseDamage * 1.5);
     dealDamageToPlayer(baseDamage);
   }, 150);
 }
 
-function enemyDefend() {
-  elements.enemyFighter.classList.add('defending');
+function enemyCritAttack() {
+  elements.enemyFighter.classList.add('punching-crit');
+  showEffect('⚠️', 'effect-crit', 50, 20);
+
   setTimeout(() => {
+    elements.enemyFighter.classList.remove('punching-crit');
+    let damage = 22 + Math.floor(Math.random() * 8);
+    if (state.ai.rage) damage = Math.floor(damage * 1.5);
+    dealDamageToPlayer(damage);
+    showEffect('💥', 'effect-crit', 30, 40);
+    showEffect(`-${damage}⚡`, 'effect-crit', 30, 60);
+    flashScreen('crit-flash');
+  }, 200);
+}
+
+function enemyCombo(count) {
+  for (let i = 0; i < count; i++) {
+    setTimeout(() => {
+      if (!state.gameRunning) return;
+      const side = i % 2 === 0 ? 'left' : 'right';
+      elements.enemyFighter.classList.add(`punching-${side}`);
+      setTimeout(() => {
+        elements.enemyFighter.classList.remove(`punching-${side}`);
+        let damage = 6 + Math.floor(Math.random() * 4); // lighter per hit but many
+        if (state.ai.rage) damage = Math.floor(damage * 1.4);
+        dealDamageToPlayer(damage);
+      }, 120);
+    }, i * 350); // 350ms between each punch
+  }
+}
+
+function enemySmartDefend(duration) {
+  state.ai.isDefending = true;
+  elements.enemyFighter.classList.add('defending');
+  showEffect('🛡️', 'effect-defend', 70, 30);
+  setTimeout(() => {
+    state.ai.isDefending = false;
     elements.enemyFighter.classList.remove('defending');
-  }, 500);
+  }, duration);
+}
+
+// Keep old enemyDefend for compatibility
+function enemyDefend() {
+  enemySmartDefend(500);
 }
 
 // ========== Event Listeners ==========
