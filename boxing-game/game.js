@@ -17,23 +17,7 @@ const state = {
   totalDefends: 0,
   enemyActionTimer: null,
   gameTimer: null,
-  cooldownTimer: null,
-
-  // Smart AI state
-  ai: {
-    isDefending: false,
-    critCooldown: 0,
-    critMaxCooldown: 8, // AI crit cooldown 8s
-    lastActionTime: 0,
-    playerRecentAttacks: 0, // track player attacking frequency
-    playerRecentDefends: 0, // track player defending frequency
-    behaviorWindow: 0, // reset counter for behavior tracking
-    feinting: false, // is currently feinting
-    feintCount: 0, // how many feints done
-    comboCount: 0, // AI combo counter
-    rage: false, // rage mode when low HP
-    difficulty: 1.0 // increases over time
-  }
+  cooldownTimer: null
 };
 
 // ========== DOM Elements ==========
@@ -82,24 +66,9 @@ function startGame() {
   state.totalCrits = 0;
   state.totalDefends = 0;
 
-  // Reset AI state
-  state.ai = {
-    isDefending: false,
-    critCooldown: 0,
-    critMaxCooldown: 8,
-    lastActionTime: 0,
-    playerRecentAttacks: 0,
-    playerRecentDefends: 0,
-    behaviorWindow: 0,
-    feinting: false,
-    feintCount: 0,
-    comboCount: 0,
-    rage: false,
-    difficulty: 1.0
-  };
-
   // Update UI
-  updateHP();n  updateScore();
+  updateHP();
+  updateScore();
   elements.timer.textContent = '60';
   elements.critCooldownFill.style.width = '100%';
   elements.btnCrit.classList.remove('on-cooldown');
@@ -210,25 +179,9 @@ function startCooldownTimer() {
       const percent = (1 - state.critCooldown / state.critMaxCooldown) * 100;
       elements.critCooldownFill.style.width = `${percent}%`;
       
-  // AI cooldown tick
-  if (state.ai.critCooldown > 0) {
-    state.ai.critCooldown -= 0.1;
-    if (state.ai.critCooldown < 0) state.ai.critCooldown = 0;
-  }
-
-  // AI behavior tracking reset every 3 seconds
-  state.ai.behaviorWindow += 0.1;
-  if (state.ai.behaviorWindow >= 3) {
-    state.ai.playerRecentAttacks = 0;
-    state.ai.playerRecentDefends = 0;
-    state.ai.behaviorWindow = 0;
-  }
-
-  // Difficulty increases over time (1.0 -> 2.0 over 60 seconds)
-  state.ai.difficulty = 1.0 + (60 - state.timeLeft) / 60;
-
-  // Rage mode when HP low
-  state.ai.rage = state.enemyHP <= 30;
+      if (state.critCooldown <= 0) {
+        elements.btnCrit.classList.remove('on-cooldown');
+      }
     }
   }, 100);
 }
@@ -255,10 +208,8 @@ function punch(side) {
   }
   state.lastPunchTime = now;
 
-  // Track player attacks for AI behavior
-  state.ai.playerRecentAttacks++;
-
   // Animate player
+  elements.playerFighter.classList.add(`punching-${side}`);
   setTimeout(() => {
     elements.playerFighter.classList.remove(`punching-${side}`);
   }, 150);
@@ -306,8 +257,7 @@ function criticalHit() {
 function startDefend() {
   if (!state.gameRunning) return;
   state.isDefending = true;
-  // Track player defends for AI behavior
-  state.ai.playerRecentDefends++;
+  state.totalDefends++;
   elements.btnDefend.classList.add('defending-active');
   elements.playerFighter.classList.add('defending');
 }
@@ -320,12 +270,6 @@ function stopDefend() {
 
 // ========== Damage & Effects ==========
 function dealDamageToEnemy(damage, isCrit) {
-  // Check if AI is defending
-  if (state.ai.isDefending) {
-    damage = Math.floor(damage * 0.3); // AI also gets 70% reduction when defending
-    showEffect('🛡️', 'effect-defend', 70, 50);
-  }
-
   state.enemyHP = Math.max(0, state.enemyHP - damage);
   updateHP();
 
@@ -430,236 +374,65 @@ function flashScreen(className) {
   setTimeout(() => flash.remove(), 150);
 }
 
-// ========== Smart Enemy AI ==========
+// ========== Enemy AI ==========
 function startEnemyAI() {
+  let lastAction = 0;
+  
   state.enemyActionTimer = setInterval(() => {
     if (!state.gameRunning) return;
 
     const now = Date.now();
-    const timeSinceLastAction = now - state.ai.lastActionTime;
-    const ai = state.ai;
+    const timeSinceLastAction = now - lastAction;
+    
+    // Enemy attacks every 800-1500ms
+    if (timeSinceLastAction < 800) return;
 
-    // Base action interval gets faster with difficulty and rage
-    let baseInterval = 900 - (ai.difficulty - 1) * 200; // 900ms -> 500ms
-    if (ai.rage) baseInterval *= 0.6; // Rage = 60% faster
-    baseInterval = Math.max(350, baseInterval); // min 350ms
-
-    if (timeSinceLastAction < baseInterval) return;
-
-    // ===== AI Decision Making =====
-    const playerAggro = ai.playerRecentAttacks >= 3; // player attacking a lot
-    const playerTurtling = ai.playerRecentDefends >= 2 && ai.playerRecentAttacks <= 1; // player defending
-    const playerLowHP = state.playerHP <= 30;
-    const enemyLowHP = state.enemyHP <= 30;
-    const canCrit = ai.critCooldown <= 0;
-
-    // Decision weights
-    let attackWeight = 40;
-    let defendWeight = 15;
-    let feintWeight = 10;
-    let critWeight = canCrit ? 15 : 0;
-    let comboWeight = 10;
-    let waitWeight = 10;
-
-    // Context adjustments
-    if (playerAggro) {
-      // Player is aggressive -> defend more, counter-attack
-      defendWeight += 30;
-      feintWeight += 10;
-      attackWeight -= 10;
+    const action = Math.random();
+    
+    if (action < 0.7) {
+      // Attack
+      enemyAttack();
+      lastAction = now;
+    } else if (action < 0.85) {
+      // Defend briefly
+      enemyDefend();
+      lastAction = now - 400; // Shorter cooldown for defend
     }
-
-    if (playerTurtling) {
-      // Player is defending -> feint to bait, then attack
-      feintWeight += 25;
-      attackWeight += 15;
-      defendWeight -= 10;
-    }
-
-    if (playerLowHP) {
-      // Player is low -> be aggressive to finish
-      attackWeight += 25;
-      comboWeight += 15;
-      defendWeight -= 10;
-    }
-
-    if (enemyLowHP) {
-      // AI is low -> defend more, counter when safe
-      defendWeight += 20;
-      critWeight += 10; // desperate crits
-    }
-
-    if (ai.rage) {
-      // Rage mode -> more aggressive
-      attackWeight += 20;
-      comboWeight += 15;
-      critWeight += 10;
-    }
-
-    if (ai.feinting) {
-      // After feint, always follow up with real attack
-      feintWeight = 0;
-      attackWeight += 40;
-      critWeight += 15;
-      ai.feinting = false;
-    }
-
-    // Difficulty scaling
-    attackWeight += (ai.difficulty - 1) * 8;
-    critWeight += (ai.difficulty - 1) * 5;
-    comboWeight += (ai.difficulty - 1) * 5;
-
-    // Total weight
-    const totalWeight = attackWeight + defendWeight + feintWeight + critWeight + comboWeight + waitWeight;
-    let roll = Math.random() * totalWeight;
-
-    let action;
-    if ((roll -= attackWeight) < 0) action = 'attack';
-    else if ((roll -= defendWeight) < 0) action = 'defend';
-    else if ((roll -= feintWeight) < 0) action = 'feint';
-    else if ((roll -= critWeight) < 0) action = 'crit';
-    else if ((roll -= comboWeight) < 0) action = 'combo';
-    else action = 'wait';
-
-    // Execute action
-    switch (action) {
-      case 'attack':
-        enemyAttack();
-        ai.lastActionTime = now;
-        ai.comboCount = 0;
-        break;
-
-      case 'defend':
-        enemyDefend();
-        ai.lastActionTime = now - Math.floor(baseInterval * 0.4); // Shorter cooldown after defend
-        break;
-
-      case 'feint':
-        enemyFeint();
-        ai.feinting = true;
-        ai.feintCount++;
-        ai.lastActionTime = now - Math.floor(baseInterval * 0.5); // Quick follow-up
-        break;
-
-      case 'crit':
-        enemyCritAttack();
-        ai.critCooldown = ai.critMaxCooldown;
-        ai.lastActionTime = now;
-        ai.comboCount = 0;
-        break;
-
-      case 'combo':
-        enemyCombo();
-        ai.lastActionTime = now - Math.floor(baseInterval * 0.3); // Quick next action
-        ai.comboCount++;
-        break;
-
-      case 'wait':
-        // Wait and observe, slightly reduce cooldown for next action
-        ai.lastActionTime = now - Math.floor(baseInterval * 0.5);
-        break;
-    }
-  }, 150);
+    // Sometimes do nothing (feint)
+  }, 200);
 }
 
 function enemyAttack() {
+  // Animate enemy
   const side = Math.random() < 0.5 ? 'left' : 'right';
   elements.enemyFighter.classList.add(`punching-${side}`);
   
   setTimeout(() => {
     elements.enemyFighter.classList.remove(`punching-${side}`);
-    // Damage scales with difficulty
+    
+    // Deal damage after animation
     const baseDamage = 10 + Math.floor(Math.random() * 8);
-    const scaledDamage = Math.floor(baseDamage * (1 + (state.ai.difficulty - 1) * 0.3));
-    dealDamageToPlayer(scaledDamage);
+    dealDamageToPlayer(baseDamage);
   }, 150);
 }
 
 function enemyDefend() {
-  state.ai.isDefending = true;
   elements.enemyFighter.classList.add('defending');
-  const duration = 400 + Math.random() * 400; // 400-800ms defend
   setTimeout(() => {
-    state.ai.isDefending = false;
     elements.enemyFighter.classList.remove('defending');
-  }, duration);
-}
-
-function enemyFeint() {
-  // Pretend to attack but pull back
-  const side = Math.random() < 0.5 ? 'left' : 'right';
-  elements.enemyFighter.classList.add(`punching-${side}`);
-  showEffect('💨', 'effect', 70, 35);
-  
-  setTimeout(() => {
-    elements.enemyFighter.classList.remove(`punching-${side}`);
-    // No damage - just a feint to bait player
-  }, 120);
-}
-
-function enemyCritAttack() {
-  // Powerful critical hit
-  elements.enemyFighter.classList.add('punching-crit');
-  showEffect('⚡', 'effect-crit', 70, 30);
-  
-  setTimeout(() => {
-    elements.enemyFighter.classList.remove('punching-crit');
-    const critDamage = 20 + Math.floor(Math.random() * 10);
-    const scaledDamage = Math.floor(critDamage * (1 + (state.ai.difficulty - 1) * 0.4));
-    dealDamageToPlayer(scaledDamage);
-    showEffect('💥', 'effect-crit', 35, 40);
-  }, 200);
-}
-
-function enemyCombo() {
-  // Rapid combo: 2-3 quick hits
-  const hits = state.ai.rage ? 3 : 2;
-  
-  for (let i = 0; i < hits; i++) {
-    setTimeout(() => {
-      if (!state.gameRunning) return;
-      const side = i % 2 === 0 ? 'left' : 'right';
-      elements.enemyFighter.classList.add(`punching-${side}`);
-      
-      setTimeout(() => {
-        elements.enemyFighter.classList.remove(`punching-${side}`);
-        const hitDamage = 6 + Math.floor(Math.random() * 5);
-        dealDamageToPlayer(hitDamage);
-      }, 100);
-    }, i * 250);
-  }
+  }, 500);
 }
 
 // ========== Event Listeners ==========
 elements.startBtn.addEventListener('click', startGame);
 elements.restartBtn.addEventListener('click', startGame);
 
-// Use a helper to avoid duplicate triggers from touch + click
-let lastTouchTime = 0;
-
-function onBtn(el, handler) {
-  el.addEventListener('touchend', (e) => {
-    e.preventDefault();
-    lastTouchTime = Date.now();
-    handler();
-  });
-  el.addEventListener('click', () => {
-    // Skip if touch just fired (< 300ms ago)
-    if (Date.now() - lastTouchTime < 300) return;
-    handler();
-  });
-}
-
-// Start and restart buttons
-onBtn(elements.startBtn, startGame);
-onBtn(elements.restartBtn, startGame);
-
 // Punch buttons
-onBtn(elements.btnLeft, () => punch('left'));
-onBtn(elements.btnRight, () => punch('right'));
+elements.btnLeft.addEventListener('click', () => punch('left'));
+elements.btnRight.addEventListener('click', () => punch('right'));
 
 // Crit button
-onBtn(elements.btnCrit, criticalHit);
+elements.btnCrit.addEventListener('click', criticalHit);
 
 // Defend button (touch events for hold)
 elements.btnDefend.addEventListener('touchstart', (e) => {
@@ -678,13 +451,6 @@ elements.btnDefend.addEventListener('touchcancel', stopDefend);
 elements.btnDefend.addEventListener('mousedown', startDefend);
 elements.btnDefend.addEventListener('mouseup', stopDefend);
 elements.btnDefend.addEventListener('mouseleave', stopDefend);
-
-// Prevent double-tap zoom on game buttons only (not start/restart)
-document.addEventListener('touchstart', (e) => {
-  if (e.target.closest('.fight-btn')) {
-    e.preventDefault();
-  }
-}, { passive: false });
 
 // Prevent context menu on long press
 document.addEventListener('contextmenu', (e) => e.preventDefault());
